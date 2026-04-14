@@ -24,4 +24,5 @@ jobs:
       - name: Run tests
         env:
           SECRET_KEY: ci-secret-key-at-least-32-characters-long
+          PYTHONPATH: .
         run: pytest -q
