@@ -70,3 +70,24 @@ async def get_week(
     ),
 ) -> WeekScheduleResponse:
     return await schedule_service.get_week_schedule(current_user, db, week_start)
+
+
+@router.post(
+    "/regenerate",
+    response_model=ScheduleResponse,
+    summary="Regenerate today's schedule",
+    description=(
+        "Re-run the constraint solver for today. "
+        "Use when the day has gone off-plan (tasks parked, surprise events). "
+        "Already-completed tasks are preserved. "
+        "Replaces the current schedule with a fresh one."
+    ),
+)
+@limiter.limit(settings.RATE_LIMIT_SCHEDULE)
+async def regenerate_schedule(
+    request: Request,
+    current_user: CurrentUserComplete,
+    db: DB,
+) -> ScheduleResponse:
+    return await schedule_service.regenerate_today_schedule(current_user, db)
+

@@ -1,5 +1,5 @@
 import uuid
-from typing import Optional
+from typing import Optional, List
 from pydantic import BaseModel, field_validator
 import re
 
@@ -52,6 +52,10 @@ class GoalDetailResponse(BaseModel):
     success_metric: Optional[str]
     status: str
     metadata: Optional[dict] = None
+    progress_pct: Optional[float] = None
+    tasks_completed: Optional[int] = None
+    tasks_total: Optional[int] = None
+    days_remaining: Optional[int] = None
 
     model_config = {"from_attributes": True}
 
@@ -62,3 +66,27 @@ class GoalDetailResponse(BaseModel):
         if isinstance(v, date):
             return v.isoformat()
         return str(v)
+
+
+class GoalStatusUpdateRequest(BaseModel):
+    """Update a goal's status (lifecycle transition)."""
+    status: str
+
+    @field_validator("status")
+    @classmethod
+    def valid_status(cls, v: str) -> str:
+        allowed = {"paused", "achieved", "abandoned"}
+        if v not in allowed:
+            raise ValueError(
+                f"status must be one of: {', '.join(allowed)}. "
+                "Use POST /goals/{id}/resume to resume a paused goal."
+            )
+        return v
+
+
+class GoalListResponse(BaseModel):
+    """List of all goals with summary."""
+    goals: List[GoalDetailResponse]
+    total: int
+    active_count: int
+

@@ -203,6 +203,47 @@ async def get_today_schedule(user: User, db: AsyncSession) -> ScheduleResponse:
     )
 
 
+async def regenerate_today_schedule(user: User, db: AsyncSession) -> ScheduleResponse:
+    """
+    Re-generate today's schedule from scratch.
+    Preserves completed tasks, deletes the old schedule.
+    """
+    today = get_user_today(getattr(user, "timezone", "Asia/Kolkata"))
+    existing = await _get_existing_schedule(user.id, today, db)
+
+    if existing:
+        # Mark non-completed tasks as deferred (they'll go to parking lot)
+        tasks_result = await db.execute(
+            select(Task).where(
+                and_(
+                    Task.schedule_id == existing.id,
+                    Task.task_status != "completed",
+                    Task.deleted_at.is_(None),
+                )
+            )
+        )
+        for task in tasks_result.scalars().all():
+            task.previous_status = task.task_status
+            task.task_status = "deferred"
+            task.schedule_id = None
+            task.scheduled_start = None
+            task.scheduled_end = None
+
+        # Delete the old schedule
+        await db.delete(existing)
+        await db.flush()
+        logger.info("schedule_regenerated_cleanup", extra={
+            "user_id": str(user.id), "date": today.isoformat(),
+        })
+
+    # Generate fresh schedule
+    return await generate_schedule(
+        user,
+        GenerateScheduleRequest(target_date=today.isoformat(), use_llm=False),
+        db,
+    )
+
+
 async def get_week_schedule(
     user: User,
     db: AsyncSession,

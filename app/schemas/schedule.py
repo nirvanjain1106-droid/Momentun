@@ -4,6 +4,7 @@ from pydantic import BaseModel, field_validator
 import re
 
 
+
 class GenerateScheduleRequest(BaseModel):
     target_date: Optional[str] = None
     day_type: Optional[str] = "standard"
@@ -44,6 +45,7 @@ class TaskResponse(BaseModel):
     is_mvp_task: bool
     sequence_order: int
     task_status: str              # "active" | "deferred" | "completed" | "parked"
+    slot_reasons: Optional[List[str]] = None   # Why this time slot was chosen
 
     model_config = {"from_attributes": True}
 

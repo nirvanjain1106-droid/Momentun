@@ -335,6 +335,9 @@ class Task(Base):
         default="active",
         server_default="active",
     )
+    previous_status: Mapped[Optional[str]] = mapped_column(
+        String(20), nullable=True, default=None,
+    )
 
     deleted_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True, default=None

@@ -30,8 +30,9 @@ Built with FastAPI, PostgreSQL, and a constraint-based scheduling engine enhance
 1. **Auth** → JWT-based (register, login, verify email, password reset)
 2. **Onboarding** → Academic → Health → Behavioural → Fixed Blocks → Goal
 3. **Scheduling** → Constraint solver → LLM enrichment (background) → Daily schedule
-4. **Check-ins** → Morning (energy/mood) → Day type adjustment → Evening (task completions)
-5. **Insights** → Pattern detection → Trajectory projection → Weekly reports
+4. **Tasks** → Real-time complete/park → Parking lot management → Undo/reschedule
+5. **Check-ins** → Morning (energy/mood) → Day type adjustment → Evening (task completions)
+6. **Insights** → Pattern detection → Trajectory projection → Weekly reports
 
 ---
 
@@ -43,10 +44,27 @@ Built with FastAPI, PostgreSQL, and a constraint-based scheduling engine enhance
 - [x] Password reset via email
 - [x] 5-step onboarding flow
 - [x] Constraint-based daily schedule generation
+- [x] **Slot reasoning engine** — every task explains WHY it's placed at that time
 - [x] LLM-generated coaching (OpenRouter/Groq/Ollama fallback chain)
 - [x] Parallel week schedule generation (`asyncio.gather`)
+- [x] Schedule regeneration (re-run solver when day goes off-plan)
 - [x] Morning check-in → automatic day type adjustment
 - [x] Evening review → task completion tracking
+
+### Task Management (Phase 4)
+- [x] Real-time task completion (creates TaskLog immediately, not just at evening review)
+- [x] Manual task parking (move to parking lot)
+- [x] Task rescheduling (move parked task to a specific future date)
+- [x] One-level undo on any task action
+- [x] Parking lot with staleness detection (>14 days = stale)
+- [x] Bulk delete for stale parking lot cleanup
+
+### Goal Lifecycle (Phase 4)
+- [x] List all goals (active + history with progress)
+- [x] Goal progress percentage (computed from TaskLog data)
+- [x] Full status transitions: active → paused / achieved / abandoned
+- [x] Single-active-goal enforcement
+- [x] Goal CRUD (update, pause, resume, soft-delete)
 
 ### Intelligence (Phase 3)
 - [x] 6 behaviour pattern detectors (day-of-week avoidance, time decay, streak vulnerability, post-bad-day collapse, subject avoidance, overload triggers)
@@ -62,6 +80,7 @@ Built with FastAPI, PostgreSQL, and a constraint-based scheduling engine enhance
 - [x] GitHub Actions CI (lint, tests, coverage, dep audit)
 - [x] Dependabot for automated dependency updates
 - [x] Race-safe database operations (PostgreSQL upserts)
+- [x] User timezone support (no more hardcoded Asia/Kolkata)
 
 ---
 
@@ -94,6 +113,18 @@ Built with FastAPI, PostgreSQL, and a constraint-based scheduling engine enhance
 | `POST` | `/api/v1/schedule/generate` | Generate daily schedule |
 | `GET`  | `/api/v1/schedule/today` | Get/auto-generate today's schedule |
 | `GET`  | `/api/v1/schedule/week` | Get full week schedule |
+| `POST` | `/api/v1/schedule/regenerate` | Re-run solver when day goes off-plan |
+
+### Tasks
+| Method | Path | Description |
+|--------|------|-------------|
+| `PATCH` | `/api/v1/tasks/{id}/complete` | Mark done in real time |
+| `PATCH` | `/api/v1/tasks/{id}/park` | Move to parking lot |
+| `PATCH` | `/api/v1/tasks/{id}/undo` | Undo last status change |
+| `POST`  | `/api/v1/tasks/reschedule` | Move parked task to specific date |
+| `GET`   | `/api/v1/tasks/parked` | View parking lot (?stale=true) |
+| `DELETE` | `/api/v1/tasks/{id}` | Soft-delete a task |
+| `POST`  | `/api/v1/tasks/bulk-delete` | Delete multiple stale tasks |
 
 ### Check-in
 | Method | Path | Description |
@@ -111,8 +142,10 @@ Built with FastAPI, PostgreSQL, and a constraint-based scheduling engine enhance
 ### Goals
 | Method | Path | Description |
 |--------|------|-------------|
+| `GET`  | `/api/v1/goals` | List all goals (active + history) |
 | `GET`  | `/api/v1/goals/active` | Get current active goal |
 | `PUT`  | `/api/v1/goals/{id}` | Update a goal |
+| `PATCH`| `/api/v1/goals/{id}/status` | Transition status (pause/achieve/abandon) |
 | `POST` | `/api/v1/goals/{id}/pause` | Pause active goal |
 | `POST` | `/api/v1/goals/{id}/resume` | Resume paused goal |
 | `DELETE`| `/api/v1/goals/{id}` | Soft-delete a goal |
@@ -235,7 +268,21 @@ app/
 │   ├── user.py            # User, profiles, settings
 │   └── goal.py            # Goal, schedule, tasks, logs, patterns
 ├── schemas/               # Pydantic request/response models
+│   ├── auth.py
+│   ├── checkin.py
+│   ├── goals.py
+│   ├── insights.py
+│   ├── onboarding.py
+│   ├── schedule.py
+│   └── tasks.py
 ├── routers/               # FastAPI route handlers
+│   ├── auth.py
+│   ├── checkin.py
+│   ├── goals.py
+│   ├── insights.py
+│   ├── onboarding.py
+│   ├── schedule.py
+│   └── tasks.py
 └── services/              # Business logic
     ├── auth_service.py
     ├── checkin_service.py
@@ -244,7 +291,8 @@ app/
     ├── insights_service.py
     ├── llm_service.py
     ├── onboarding_service.py
-    └── schedule_service.py
+    ├── schedule_service.py
+    └── task_service.py
 tests/                     # pytest test suite
 alembic/                   # Database migrations
 ```

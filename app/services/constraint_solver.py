@@ -72,6 +72,7 @@ class ScheduledTask:
     sequence_order: int
     description: str = ""
     subject: Optional[str] = None
+    slot_reasons: Optional[List[str]] = None
 
 
 @dataclass
@@ -311,6 +312,33 @@ class ConstraintSolver:
                 if self._time_to_slot(end) > window.slot_end:
                     continue
 
+                # Build slot reasoning
+                reasons = []
+                priority_names = {1: "Core (must-do)", 2: "Normal", 3: "Bonus"}
+                reasons.append(
+                    f"{priority_names.get(task.priority, 'Normal')} priority task"
+                )
+
+                if window.energy_level == "high" and task.energy_required == "high":
+                    reasons.append(
+                        f"Placed during peak energy window ({window.start_time}–{window.end_time}) "
+                        "for maximum concentration"
+                    )
+                elif window.energy_level == "medium":
+                    reasons.append(
+                        f"Scheduled in moderate energy window ({window.start_time}–{window.end_time})"
+                    )
+                elif window.energy_level == "low":
+                    reasons.append(
+                        f"Light task fits the low-energy evening window ({window.start_time}–{window.end_time})"
+                    )
+
+                if task.subject:
+                    reasons.append(f"Subject: {task.subject}")
+
+                if task.is_mvp_task if hasattr(task, 'is_mvp_task') else task.priority == PRIORITY_CORE:
+                    reasons.append("Scheduled first — Core tasks get priority placement")
+
                 scheduled.append(ScheduledTask(
                     title=task.title,
                     task_type=task.task_type,
@@ -322,6 +350,7 @@ class ConstraintSolver:
                     is_mvp_task=(task.priority == PRIORITY_CORE),
                     sequence_order=sequence,
                     subject=task.subject,
+                    slot_reasons=reasons,
                 ))
 
                 window_remaining[idx]    -= (task.duration_mins + self.TRANSITION_MINS)

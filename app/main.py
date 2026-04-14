@@ -12,7 +12,7 @@ from app.database import get_db
 from app.core.logging import configure_logging
 from app.core.rate_limit import limiter
 from app.core.middleware import RequestIDMiddleware
-from app.routers import auth, onboarding, schedule, checkin, insights, goals
+from app.routers import auth, onboarding, schedule, checkin, insights, goals, tasks
 
 configure_logging()
 logger = logging.getLogger(__name__)
@@ -76,6 +76,7 @@ app.include_router(schedule.router,   prefix="/api/v1")
 app.include_router(checkin.router,    prefix="/api/v1")
 app.include_router(insights.router,   prefix="/api/v1")
 app.include_router(goals.router,      prefix="/api/v1")
+app.include_router(tasks.router,      prefix="/api/v1")
 
 
 @app.get("/", include_in_schema=False)

@@ -8,14 +8,14 @@ Enforces the single-active-goal rule:
 
 import uuid
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, func
 from fastapi import HTTPException, status
 
-from app.models.goal import Goal
-from app.schemas.goals import GoalUpdateRequest, GoalDetailResponse
+from app.models.goal import Goal, Task
+from app.schemas.goals import GoalUpdateRequest, GoalDetailResponse, GoalListResponse
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,36 @@ async def get_active_goal(user_id: uuid.UUID, db: AsyncSession) -> GoalDetailRes
             detail="No active goal found",
         )
 
-    return GoalDetailResponse.model_validate(goal, from_attributes=True)
+    return await _build_goal_response(goal, db)
+
+
+async def list_all_goals(user_id: uuid.UUID, db: AsyncSession) -> GoalListResponse:
+    """List all goals (active + historical), ordered by created_at desc."""
+    result = await db.execute(
+        select(Goal)
+        .where(
+            and_(
+                Goal.user_id == user_id,
+                Goal.deleted_at.is_(None),
+            )
+        )
+        .order_by(Goal.created_at.desc())
+    )
+    goals = result.scalars().all()
+
+    goal_responses = []
+    active_count = 0
+    for g in goals:
+        resp = await _build_goal_response(g, db)
+        goal_responses.append(resp)
+        if g.status == "active":
+            active_count += 1
+
+    return GoalListResponse(
+        goals=goal_responses,
+        total=len(goal_responses),
+        active_count=active_count,
+    )
 
 
 async def update_goal(
@@ -59,7 +88,6 @@ async def update_goal(
 
     # Handle target_date conversion
     if "target_date" in update_data:
-        from datetime import date
         update_data["target_date"] = date.fromisoformat(update_data["target_date"])
 
     for field, value in update_data.items():
@@ -68,76 +96,95 @@ async def update_goal(
     await db.flush()
     logger.info("goal_updated", extra={"goal_id": str(goal_id), "user_id": str(user_id)})
 
-    return GoalDetailResponse.model_validate(goal, from_attributes=True)
+    return await _build_goal_response(goal, db)
+
+
+async def update_goal_status(
+    user_id: uuid.UUID,
+    goal_id: uuid.UUID,
+    new_status: str,
+    db: AsyncSession,
+) -> GoalDetailResponse:
+    """
+    Handle all goal status transitions:
+    - active → paused
+    - active → achieved
+    - active → abandoned
+    - paused → active (enforce single-active-goal)
+    """
+    goal = await _get_user_goal(user_id, goal_id, db)
+
+    current = goal.status
+    valid_transitions = {
+        "active": {"paused", "achieved", "abandoned"},
+        "paused": {"active", "abandoned"},
+    }
+
+    allowed = valid_transitions.get(current, set())
+    if new_status not in allowed:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot transition from '{current}' to '{new_status}'. Allowed: {allowed or 'none'}",
+        )
+
+    # If resuming (paused → active), enforce single-active-goal
+    if new_status == "active":
+        result = await db.execute(
+            select(Goal).where(
+                and_(
+                    Goal.user_id == user_id,
+                    Goal.status == "active",
+                    Goal.deleted_at.is_(None),
+                )
+            )
+        )
+        existing_active = result.scalar_one_or_none()
+        if existing_active:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="You already have an active goal. Pause or complete it first.",
+            )
+
+    # If abandoning, soft-delete
+    if new_status == "abandoned":
+        goal.deleted_at = datetime.now(timezone.utc)
+
+    goal.status = new_status
+    await db.flush()
+
+    action_log = {
+        "achieved": "goal_achieved",
+        "paused": "goal_paused",
+        "abandoned": "goal_abandoned",
+        "active": "goal_resumed",
+    }
+    logger.info(
+        action_log.get(new_status, "goal_status_changed"),
+        extra={"goal_id": str(goal_id), "user_id": str(user_id), "new_status": new_status},
+    )
+
+    return await _build_goal_response(goal, db)
 
 
 async def pause_goal(
     user_id: uuid.UUID, goal_id: uuid.UUID, db: AsyncSession
 ) -> GoalDetailResponse:
     """Pause an active goal."""
-    goal = await _get_user_goal(user_id, goal_id, db)
-
-    if goal.status != "active":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Can only pause active goals. Current status: {goal.status}",
-        )
-
-    goal.status = "paused"
-    await db.flush()
-    logger.info("goal_paused", extra={"goal_id": str(goal_id), "user_id": str(user_id)})
-
-    return GoalDetailResponse.model_validate(goal, from_attributes=True)
+    return await update_goal_status(user_id, goal_id, "paused", db)
 
 
 async def resume_goal(
     user_id: uuid.UUID, goal_id: uuid.UUID, db: AsyncSession
 ) -> GoalDetailResponse:
     """Resume a paused goal. Enforces single-active-goal rule."""
-    goal = await _get_user_goal(user_id, goal_id, db)
-
-    if goal.status != "paused":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Can only resume paused goals. Current status: {goal.status}",
-        )
-
-    # Check for existing active goal
-    result = await db.execute(
-        select(Goal).where(
-            and_(
-                Goal.user_id == user_id,
-                Goal.status == "active",
-                Goal.deleted_at.is_(None),
-            )
-        )
-    )
-    existing_active = result.scalar_one_or_none()
-    if existing_active:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="You already have an active goal. Pause or complete it first.",
-        )
-
-    goal.status = "active"
-    await db.flush()
-    logger.info("goal_resumed", extra={"goal_id": str(goal_id), "user_id": str(user_id)})
-
-    return GoalDetailResponse.model_validate(goal, from_attributes=True)
+    return await update_goal_status(user_id, goal_id, "active", db)
 
 
 async def delete_goal(
     user_id: uuid.UUID, goal_id: uuid.UUID, db: AsyncSession
 ) -> GoalDetailResponse:
     """Soft-delete a goal."""
-    goal = await _get_user_goal(user_id, goal_id, db)
-
-    goal.deleted_at = datetime.now(timezone.utc)
-    goal.status = "abandoned"
-    await db.flush()
-    logger.info("goal_deleted", extra={"goal_id": str(goal_id), "user_id": str(user_id)})
-
-    return GoalDetailResponse.model_validate(goal, from_attributes=True)
+    return await update_goal_status(user_id, goal_id, "abandoned", db)
 
 
 # ── Private helpers ─────────────────────────────────────────────
@@ -165,3 +212,61 @@ async def _get_user_goal(
         )
 
     return goal
+
+
+async def _get_goal_progress(goal_id: uuid.UUID, db: AsyncSession) -> dict:
+    """Calculate goal progress from TaskLog data."""
+    # Total tasks ever created for this goal
+    total_result = await db.execute(
+        select(func.count(Task.id)).where(
+            and_(Task.goal_id == goal_id, Task.deleted_at.is_(None))
+        )
+    )
+    total = total_result.scalar() or 0
+
+    # Completed tasks
+    completed_result = await db.execute(
+        select(func.count(Task.id)).where(
+            and_(
+                Task.goal_id == goal_id,
+                Task.task_status == "completed",
+                Task.deleted_at.is_(None),
+            )
+        )
+    )
+    completed = completed_result.scalar() or 0
+
+    progress_pct = round((completed / total * 100), 1) if total > 0 else 0.0
+
+    return {
+        "progress_pct": progress_pct,
+        "tasks_completed": completed,
+        "tasks_total": total,
+    }
+
+
+async def _build_goal_response(goal: Goal, db: AsyncSession) -> GoalDetailResponse:
+    """Build GoalDetailResponse with progress data."""
+    progress = await _get_goal_progress(goal.id, db)
+
+    days_remaining = (goal.target_date - date.today()).days
+    if days_remaining < 0:
+        days_remaining = 0
+
+    return GoalDetailResponse(
+        id=goal.id,
+        user_id=goal.user_id,
+        title=goal.title,
+        goal_type=goal.goal_type,
+        description=goal.description,
+        target_date=goal.target_date,
+        motivation=goal.motivation,
+        consequence=goal.consequence,
+        success_metric=goal.success_metric,
+        status=goal.status,
+        metadata=goal.goal_metadata,
+        progress_pct=progress["progress_pct"],
+        tasks_completed=progress["tasks_completed"],
+        tasks_total=progress["tasks_total"],
+        days_remaining=days_remaining,
+    )
