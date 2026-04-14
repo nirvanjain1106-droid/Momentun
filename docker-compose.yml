@@ -1,0 +1,26 @@
+version: "3.9"
+
+# Fix #13 — Redis removed (not yet used in codebase)
+# Add it back when implementing rate limiting or pattern caching
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: momentum_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-momentum_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-momentum_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-momentum_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-momentum_user}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
