@@ -11,10 +11,26 @@ from app.config import settings
 from app.database import get_db
 from app.core.logging import configure_logging
 from app.core.rate_limit import limiter
-from app.routers import auth, onboarding, schedule, checkin, insights
+from app.core.middleware import RequestIDMiddleware
+from app.routers import auth, onboarding, schedule, checkin, insights, goals
 
 configure_logging()
 logger = logging.getLogger(__name__)
+
+# ── Sentry SDK (opt-in via SENTRY_DSN env var) ────────────────
+if settings.SENTRY_DSN:
+    try:
+        import sentry_sdk
+        sentry_sdk.init(
+            dsn=settings.SENTRY_DSN,
+            traces_sample_rate=0.1,
+            environment=settings.APP_ENV,
+            send_default_pii=False,
+        )
+        logger.info("sentry_initialized")
+    except Exception:
+        logger.warning("sentry_init_failed — continuing without Sentry")
+
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -26,6 +42,9 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
 )
+
+# ── Middleware (order matters — outermost first) ─────────────
+app.add_middleware(RequestIDMiddleware)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
@@ -38,11 +57,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── Prometheus Metrics (auto-instrumentation) ────────────────
+try:
+    from prometheus_fastapi_instrumentator import Instrumentator
+    Instrumentator(
+        should_group_status_codes=True,
+        should_ignore_untemplated=True,
+        excluded_handlers=["/health", "/metrics", "/"],
+    ).instrument(app).expose(app, endpoint="/metrics")
+    logger.info("prometheus_metrics_enabled at /metrics")
+except ImportError:
+    logger.warning("prometheus-fastapi-instrumentator not installed — metrics disabled")
+
+# ── Routers ──────────────────────────────────────────────────
 app.include_router(auth.router,       prefix="/api/v1")
 app.include_router(onboarding.router, prefix="/api/v1")
 app.include_router(schedule.router,   prefix="/api/v1")
 app.include_router(checkin.router,    prefix="/api/v1")
 app.include_router(insights.router,   prefix="/api/v1")
+app.include_router(goals.router,      prefix="/api/v1")
 
 
 @app.get("/", include_in_schema=False)

@@ -50,6 +50,10 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)
     onboarding_complete: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     onboarding_step: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    email_verified_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

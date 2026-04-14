@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from jose import JWTError, jwt
+import jwt
 from passlib.context import CryptContext
 
 from app.config import settings
@@ -56,6 +56,34 @@ def create_refresh_token(user_id: uuid.UUID) -> str:
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
+def create_email_verification_token(user_id: uuid.UUID) -> str:
+    """Create a short-lived token for email verification."""
+    expire = datetime.now(timezone.utc) + timedelta(
+        hours=settings.EMAIL_VERIFICATION_EXPIRE_HOURS
+    )
+    payload = {
+        "sub": str(user_id),
+        "type": "email_verify",
+        "exp": expire,
+        "iat": datetime.now(timezone.utc),
+    }
+    return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
+def create_password_reset_token(user_id: uuid.UUID) -> str:
+    """Create a short-lived token for password reset."""
+    expire = datetime.now(timezone.utc) + timedelta(
+        minutes=settings.PASSWORD_RESET_EXPIRE_MINUTES
+    )
+    payload = {
+        "sub": str(user_id),
+        "type": "password_reset",
+        "exp": expire,
+        "iat": datetime.now(timezone.utc),
+    }
+    return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
 def decode_token(token: str) -> Optional[dict]:
     """
     Decode and validate a JWT token.
@@ -66,7 +94,7 @@ def decode_token(token: str) -> Optional[dict]:
             token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
         )
         return payload
-    except (JWTError, ValueError, TypeError):
+    except (jwt.exceptions.PyJWTError, ValueError, TypeError):
         return None
 
 

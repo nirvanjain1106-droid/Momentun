@@ -58,3 +58,46 @@ class RefreshRequest(BaseModel):
 class AccessTokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+
+
+# ── Password Reset ────────────────────────
+
+class PasswordResetRequest(BaseModel):
+    """Request a password reset email."""
+    email: EmailStr
+
+
+class PasswordResetConfirm(BaseModel):
+    """Confirm password reset with token and new password."""
+    token: str
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def password_strength(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("Password must be at least 8 characters")
+        if not re.search(r"[A-Z]", v):
+            raise ValueError("Password must contain at least one uppercase letter")
+        if not re.search(r"[0-9]", v):
+            raise ValueError("Password must contain at least one number")
+        return v
+
+
+# ── Email Verification ────────────────────
+
+class EmailVerificationResponse(BaseModel):
+    message: str
+    email_verified: bool
+
+
+# ── Logout ────────────────────────────────
+
+class LogoutResponse(BaseModel):
+    message: str
+
+
+# ── Generic message response ─────────────
+
+class MessageResponse(BaseModel):
+    message: str

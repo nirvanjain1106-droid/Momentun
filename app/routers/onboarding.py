@@ -1,7 +1,9 @@
 from typing import List
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 
+from app.config import settings
+from app.core.rate_limit import limiter
 from app.core.dependencies import CurrentUser, DB
 from app.schemas.onboarding import (
     AcademicProfileRequest,
@@ -30,7 +32,10 @@ router = APIRouter(prefix="/onboarding", tags=["Onboarding"])
         "Use this to resume onboarding if the user leaves mid-way."
     ),
 )
-async def get_status(current_user: CurrentUser, db: DB) -> OnboardingStatusResponse:
+@limiter.limit(settings.RATE_LIMIT_DEFAULT)
+async def get_status(
+    request: Request, current_user: CurrentUser, db: DB
+) -> OnboardingStatusResponse:
     return await onboarding_service.get_onboarding_status(current_user, db)
 
 
@@ -45,7 +50,9 @@ async def get_status(current_user: CurrentUser, db: DB) -> OnboardingStatusRespo
         "This endpoint is idempotent — calling it again updates the existing profile."
     ),
 )
+@limiter.limit(settings.RATE_LIMIT_DEFAULT)
 async def save_academic_profile(
+    request: Request,
     data: AcademicProfileRequest,
     current_user: CurrentUser,
     db: DB,
@@ -64,7 +71,9 @@ async def save_academic_profile(
         "Can be submitted at any point, not just during initial onboarding."
     ),
 )
+@limiter.limit(settings.RATE_LIMIT_DEFAULT)
 async def save_health_profile(
+    request: Request,
     data: HealthProfileRequest,
     current_user: CurrentUser,
     db: DB,
@@ -84,7 +93,9 @@ async def save_health_profile(
         "Peak energy window is auto-derived from chronotype if not provided."
     ),
 )
+@limiter.limit(settings.RATE_LIMIT_DEFAULT)
 async def save_behavioural_profile(
+    request: Request,
     data: BehaviouralProfileRequest,
     current_user: CurrentUser,
     db: DB,
@@ -104,7 +115,9 @@ async def save_behavioural_profile(
         "Set replace_existing=true to replace all existing blocks (use with caution)."
     ),
 )
+@limiter.limit(settings.RATE_LIMIT_DEFAULT)
 async def save_fixed_blocks(
+    request: Request,
     data: FixedBlocksRequest,
     current_user: CurrentUser,
     db: DB,
@@ -130,7 +143,9 @@ async def save_fixed_blocks(
         "and unlocks schedule generation."
     ),
 )
+@limiter.limit(settings.RATE_LIMIT_DEFAULT)
 async def create_first_goal(
+    request: Request,
     data: GoalRequest,
     current_user: CurrentUser,
     db: DB,

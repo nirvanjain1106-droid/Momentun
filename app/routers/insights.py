@@ -1,7 +1,9 @@
 from typing import Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 
+from app.config import settings
+from app.core.rate_limit import limiter
 from app.core.dependencies import CurrentUserComplete, DB
 from app.schemas.insights import (
     PatternsResponse,
@@ -25,7 +27,9 @@ router = APIRouter(prefix="/insights", tags=["Insights"])
         "Requires at least 2 weeks of daily logs for reliable patterns."
     ),
 )
+@limiter.limit(settings.RATE_LIMIT_DEFAULT)
 async def get_patterns(
+    request: Request,
     current_user: CurrentUserComplete,
     db: DB,
 ) -> PatternsResponse:
@@ -42,7 +46,9 @@ async def get_patterns(
         "and projects the final outcome at current pace."
     ),
 )
+@limiter.limit(settings.RATE_LIMIT_DEFAULT)
 async def get_trajectory(
+    request: Request,
     current_user: CurrentUserComplete,
     db: DB,
 ) -> TrajectoryResponse:
@@ -61,7 +67,9 @@ async def get_trajectory(
         "for a specific past week."
     ),
 )
+@limiter.limit(settings.RATE_LIMIT_DEFAULT)
 async def get_weekly_insights(
+    request: Request,
     current_user: CurrentUserComplete,
     db: DB,
     week_start: Optional[str] = Query(

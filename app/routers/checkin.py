@@ -1,4 +1,6 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
+from app.config import settings
+from app.core.rate_limit import limiter
 from app.core.dependencies import CurrentUserComplete, DB
 from app.schemas.checkin import (
     MorningCheckinRequest,
@@ -22,7 +24,9 @@ router = APIRouter(prefix="/checkin", tags=["Daily Check-in"])
         "Can only be submitted once per day."
     ),
 )
+@limiter.limit(settings.RATE_LIMIT_DEFAULT)
 async def morning_checkin(
+    request: Request,
     data: MorningCheckinRequest,
     current_user: CurrentUserComplete,
     db: DB,
@@ -41,7 +45,9 @@ async def morning_checkin(
         "Can only be submitted once per day."
     ),
 )
+@limiter.limit(settings.RATE_LIMIT_DEFAULT)
 async def evening_review(
+    request: Request,
     data: EveningReviewRequest,
     current_user: CurrentUserComplete,
     db: DB,

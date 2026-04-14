@@ -1,0 +1,16 @@
+venv/
+.venv/
+__pycache__/
+*.pyc
+.git/
+.github/
+.env
+.env.*
+!.env.example
+tests/
+*.egg-info/
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+*.md
+LICENSE

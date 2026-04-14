@@ -27,12 +27,29 @@ class Settings(BaseSettings):
     # Fix #16 — all LLM keys go through settings, not os.getenv()
     OPENROUTER_API_KEY: str = ""
     GROQ_API_KEY:       str = ""
+
+    # Rate limiting
     RATE_LIMIT_STORAGE_URL: str = "memory://"
     RATE_LIMIT_DEFAULT: str = "120/minute"
     RATE_LIMIT_AUTH: str = "10/minute"
     RATE_LIMIT_SCHEDULE: str = "10/minute"
 
+    # CORS
     ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:8080"
+
+    # Email / SMTP
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM: str = "noreply@momentum-app.local"
+    SMTP_USE_TLS: bool = True
+    EMAIL_VERIFICATION_EXPIRE_HOURS: int = 24
+    PASSWORD_RESET_EXPIRE_MINUTES: int = 30
+    FRONTEND_URL: str = "http://localhost:3000"
+
+    # Monitoring
+    SENTRY_DSN: str = ""
 
     @property
     def ALLOWED_ORIGINS_LIST(self) -> list[str]:

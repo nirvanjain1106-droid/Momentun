@@ -1,299 +1,256 @@
 # Momentum API
 
-AI-powered adaptive scheduling that learns your behaviour patterns
-and adjusts your daily plan automatically.
+**AI-powered adaptive scheduling** that learns your behaviour patterns and adjusts your daily plan automatically.
+
+Built with FastAPI, PostgreSQL, and a constraint-based scheduling engine enhanced with LLM-generated coaching.
 
 ---
 
-## Prerequisites
+## Architecture
 
+```
+┌─────────────┐     ┌──────────────┐     ┌──────────────────┐
+│   Client     │────▶│  FastAPI      │────▶│  PostgreSQL      │
+│  (Mobile/    │◀────│  + Uvicorn    │◀────│  (asyncpg)       │
+│   Web)       │     │              │     │                  │
+└─────────────┘     └──────┬───────┘     └──────────────────┘
+                           │
+              ┌────────────┼────────────┐
+              │            │            │
+    ┌─────────▼──┐  ┌──────▼─────┐  ┌──▼──────────┐
+    │ Constraint  │  │  LLM       │  │  Pattern    │
+    │ Solver      │  │  Service   │  │  Engine     │
+    │ (greedy     │  │ (OpenRouter│  │ (insights,  │
+    │  scheduler) │  │  /Groq/    │  │  trajectory)│
+    └────────────┘  │  Ollama)   │  └─────────────┘
+                    └────────────┘
+```
+
+### Request Flow
+1. **Auth** → JWT-based (register, login, verify email, password reset)
+2. **Onboarding** → Academic → Health → Behavioural → Fixed Blocks → Goal
+3. **Scheduling** → Constraint solver → LLM enrichment (background) → Daily schedule
+4. **Check-ins** → Morning (energy/mood) → Day type adjustment → Evening (task completions)
+5. **Insights** → Pattern detection → Trajectory projection → Weekly reports
+
+---
+
+## Features
+
+### Core
+- [x] User registration with email verification
+- [x] JWT auth (access + refresh tokens)
+- [x] Password reset via email
+- [x] 5-step onboarding flow
+- [x] Constraint-based daily schedule generation
+- [x] LLM-generated coaching (OpenRouter/Groq/Ollama fallback chain)
+- [x] Parallel week schedule generation (`asyncio.gather`)
+- [x] Morning check-in → automatic day type adjustment
+- [x] Evening review → task completion tracking
+
+### Intelligence (Phase 3)
+- [x] 6 behaviour pattern detectors (day-of-week avoidance, time decay, streak vulnerability, post-bad-day collapse, subject avoidance, overload triggers)
+- [x] Goal trajectory & pace projection
+- [x] Weekly performance reports with coaching notes
+- [x] Pattern-aware and trajectory-aware LLM prompts
+
+### Infrastructure
+- [x] Rate limiting (SlowAPI) on all endpoints
+- [x] Structured JSON logging (production) with request IDs
+- [x] Prometheus metrics (`/metrics`)
+- [x] Sentry error tracking (opt-in)
+- [x] GitHub Actions CI (lint, tests, coverage, dep audit)
+- [x] Dependabot for automated dependency updates
+- [x] Race-safe database operations (PostgreSQL upserts)
+
+---
+
+## API Endpoints
+
+### Authentication
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/v1/auth/register` | Create account (sends verification email) |
+| `POST` | `/api/v1/auth/login` | Login with email + password |
+| `POST` | `/api/v1/auth/refresh` | Refresh access token |
+| `GET`  | `/api/v1/auth/verify-email` | Verify email with token |
+| `POST` | `/api/v1/auth/password-reset/request` | Request password reset email |
+| `POST` | `/api/v1/auth/password-reset/confirm` | Reset password with token |
+| `POST` | `/api/v1/auth/logout` | Logout (client token discard) |
+
+### Onboarding
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET`  | `/api/v1/onboarding/status` | Get onboarding progress |
+| `POST` | `/api/v1/onboarding/academic-profile` | Step 2: Academic details |
+| `POST` | `/api/v1/onboarding/health-profile` | Optional: Health info |
+| `POST` | `/api/v1/onboarding/behavioural-profile` | Step 3: Schedule preferences |
+| `POST` | `/api/v1/onboarding/fixed-blocks` | Step 4: Fixed commitments |
+| `POST` | `/api/v1/onboarding/goal` | Step 5: Create first goal |
+
+### Schedule
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/v1/schedule/generate` | Generate daily schedule |
+| `GET`  | `/api/v1/schedule/today` | Get/auto-generate today's schedule |
+| `GET`  | `/api/v1/schedule/week` | Get full week schedule |
+
+### Check-in
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/v1/checkin/morning` | Morning energy check-in |
+| `POST` | `/api/v1/checkin/evening` | Evening task review |
+
+### Insights
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET`  | `/api/v1/insights/patterns` | Active behaviour patterns |
+| `GET`  | `/api/v1/insights/trajectory` | Goal pace projection |
+| `GET`  | `/api/v1/insights/weekly` | Weekly performance report |
+
+### Goals
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET`  | `/api/v1/goals/active` | Get current active goal |
+| `PUT`  | `/api/v1/goals/{id}` | Update a goal |
+| `POST` | `/api/v1/goals/{id}/pause` | Pause active goal |
+| `POST` | `/api/v1/goals/{id}/resume` | Resume paused goal |
+| `DELETE`| `/api/v1/goals/{id}` | Soft-delete a goal |
+
+### Infrastructure
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET`  | `/` | App info |
+| `GET`  | `/health` | DB connectivity check |
+| `GET`  | `/metrics` | Prometheus metrics |
+| `GET`  | `/docs` | Swagger UI |
+| `GET`  | `/redoc` | ReDoc |
+
+---
+
+## Quick Start
+
+### Prerequisites
 - Python 3.11+
-- Docker + Docker Compose
-- Git
+- PostgreSQL 15+
+- (Optional) Docker & Docker Compose
 
----
+### Setup
 
-## Setup — Run These Commands Exactly In Order
-
-### 1. Clone and enter the project
 ```bash
-cd "Momentum API"
-```
+# Clone
+git clone <repo-url> && cd momentum-api
 
-### 2. Create and activate virtual environment
-```bash
+# Virtual environment
 python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
 
-# On Windows:
-venv\Scripts\activate
-
-# On Mac/Linux:
-source venv/bin/activate
-```
-
-### 3. Install dependencies
-```bash
+# Install
 pip install -r requirements.txt
-```
 
-### 3.1 Configure environment
-```bash
+# Environment
 cp .env.example .env
+# Edit .env with your database credentials
+
+# Database
+alembic upgrade head
+
+# Run
+uvicorn app.main:app --reload --port 8000
 ```
 
-### 4. Start the database
+### Docker
+
 ```bash
 docker-compose up -d
 ```
 
-Wait ~5 seconds for PostgreSQL to be ready. Verify:
-```bash
-docker-compose ps
-# Both services should show "healthy"
-```
+---
 
-### 5. Run database migrations
-```bash
-alembic upgrade head
-```
+## Environment Variables
 
-You should see:
-```
-INFO  [alembic.runtime.migration] Running upgrade  -> 001_initial_schema, Initial schema
-```
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `SECRET_KEY` | **Production** | Auto-generated | JWT signing key (32+ chars) |
+| `POSTGRES_*` | Yes | See .env.example | Database connection |
+| `OPENROUTER_API_KEY` | No | - | Primary LLM provider |
+| `GROQ_API_KEY` | No | - | Fallback LLM provider |
+| `SENTRY_DSN` | No | - | Sentry error tracking |
+| `SMTP_HOST` | No | - | Email SMTP server (empty = console) |
+| `RATE_LIMIT_AUTH` | No | `10/minute` | Auth endpoint rate limit |
+| `RATE_LIMIT_SCHEDULE` | No | `10/minute` | Schedule endpoint rate limit |
 
-### 6. Start the API server
-```bash
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-### 7. Open the API docs
-```
-http://localhost:8000/docs
-```
+See [.env.example](.env.example) for all available settings.
 
 ---
 
-## API Endpoints — Phase 1
-
-### Authentication
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/v1/auth/register` | Create account |
-| POST | `/api/v1/auth/login` | Login |
-| POST | `/api/v1/auth/refresh` | Refresh access token |
-
-### Onboarding
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/v1/onboarding/status` | Get onboarding progress |
-| POST | `/api/v1/onboarding/academic-profile` | Step 2: College details |
-| POST | `/api/v1/onboarding/health-profile` | Optional: Health data |
-| POST | `/api/v1/onboarding/behavioural-profile` | Step 3: Chronotype + commitment |
-| POST | `/api/v1/onboarding/fixed-blocks` | Step 4: Fixed time commitments |
-| POST | `/api/v1/onboarding/goal` | Step 5: First goal (completes onboarding) |
-
----
-
-## Testing the API Manually
-
-### Register a new user
-```bash
-curl -X POST http://localhost:8000/api/v1/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Arjun Singh",
-    "email": "arjun@example.com",
-    "password": "Test1234",
-    "user_type": "student"
-  }'
-```
-
-Expected response:
-```json
-{
-  "access_token": "eyJ...",
-  "refresh_token": "eyJ...",
-  "token_type": "bearer",
-  "user_id": "uuid-here",
-  "onboarding_complete": false,
-  "onboarding_step": 1
-}
-```
-
-### Save behavioural profile (Step 3)
-```bash
-curl -X POST http://localhost:8000/api/v1/onboarding/behavioural-profile \
-  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "wake_time": "06:30",
-    "sleep_time": "23:00",
-    "chronotype": "early_bird",
-    "daily_commitment_hrs": 4.0,
-    "heavy_days": [3, 6],
-    "light_days": [1],
-    "preferred_study_style": "pomodoro",
-    "max_focus_duration_mins": 45
-  }'
-```
-
-### Save fixed blocks (Step 4)
-```bash
-curl -X POST http://localhost:8000/api/v1/onboarding/fixed-blocks \
-  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "blocks": [
-      {
-        "title": "Sleep",
-        "block_type": "sleep",
-        "applies_to_days": [1,2,3,4,5,6,7],
-        "start_time": "23:00",
-        "end_time": "06:30",
-        "is_hard_constraint": true,
-        "buffer_before": 0,
-        "buffer_after": 30
-      },
-      {
-        "title": "College",
-        "block_type": "college",
-        "applies_to_days": [2,3,4,5,6],
-        "start_time": "09:00",
-        "end_time": "16:00",
-        "is_hard_constraint": true,
-        "buffer_before": 0,
-        "buffer_after": 0
-      },
-      {
-        "title": "Travel to college",
-        "block_type": "travel",
-        "applies_to_days": [2,3,4,5,6],
-        "start_time": "08:00",
-        "end_time": "09:00",
-        "is_hard_constraint": true,
-        "buffer_before": 0,
-        "buffer_after": 0
-      },
-      {
-        "title": "Lunch",
-        "block_type": "meal",
-        "applies_to_days": [1,2,3,4,5,6,7],
-        "start_time": "13:00",
-        "end_time": "13:30",
-        "is_hard_constraint": true,
-        "buffer_before": 0,
-        "buffer_after": 15
-      }
-    ]
-  }'
-```
-
-### Create first goal (Step 5 — completes onboarding)
-```bash
-curl -X POST http://localhost:8000/api/v1/onboarding/goal \
-  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "title": "Crack GATE 2026",
-    "goal_type": "exam",
-    "target_date": "2026-02-01",
-    "motivation": "Get into IIT for M.Tech",
-    "consequence": "Will have to appear again next year",
-    "success_metric": "Score 650+ out of 1000",
-    "metadata": {
-      "subjects": ["Engineering Maths", "Computer Networks", "OS", "DBMS", "Algorithms"],
-      "weak_subjects": ["Computer Networks", "OS"],
-      "strong_subjects": ["Engineering Maths"],
-      "exam_pattern": "MCQ",
-      "total_marks": 100
-    }
-  }'
-```
-
----
-
-## Automated validation
+## Testing
 
 ```bash
+# Run all tests
 pytest -q
-python -m compileall app
+
+# Run with coverage
+pytest --cov=app --cov-report=term-missing
+
+# Run specific test file
+pytest tests/test_constraint_solver.py -v
+
+# Lint
+ruff check app tests
+
+# Dependency audit
+pip-audit
 ```
 
-CI runs these checks on every push and pull request via `.github/workflows/ci.yml`.
+---
+
+## CI/CD
+
+GitHub Actions runs on every push and PR:
+1. **Static check** — `python -m compileall app`
+2. **Lint** — `ruff check app tests`
+3. **Dependency scan** — `pip-audit --strict`
+4. **Tests + Coverage** — `pytest --cov` with minimum threshold
+5. **Model validation** — Ensures all SQLAlchemy models load correctly
 
 ---
 
 ## Project Structure
 
 ```
-momentum/
-├── app/
-│   ├── main.py               ← FastAPI app entry point
-│   ├── config.py             ← Settings from .env
-│   ├── database.py           ← Async SQLAlchemy engine + session
-│   ├── models/
-│   │   ├── user.py           ← User + profile tables
-│   │   └── goal.py           ← Goal + schedule + log tables
-│   ├── schemas/
-│   │   ├── auth.py           ← Auth request/response schemas
-│   │   └── onboarding.py     ← Onboarding request/response schemas
-│   ├── routers/
-│   │   ├── auth.py           ← Auth endpoints
-│   │   └── onboarding.py     ← Onboarding endpoints
-│   ├── services/
-│   │   ├── auth_service.py   ← Register/login business logic
-│   │   └── onboarding_service.py ← Onboarding business logic
-│   └── core/
-│       ├── security.py       ← JWT + password hashing
-│       └── dependencies.py   ← FastAPI dependencies (auth guard)
-├── alembic/
-│   ├── env.py                ← Migration environment
-│   └── versions/
-│       └── 001_initial_schema.py ← Full DB schema
-├── alembic.ini
-├── docker-compose.yml        ← PostgreSQL + Redis
-├── requirements.txt
-├── .env                      ← Dev environment variables
-└── .env.example              ← Template for new devs
+app/
+├── config.py              # Pydantic settings
+├── database.py            # Async SQLAlchemy engine
+├── main.py                # FastAPI app + middleware
+├── core/
+│   ├── dependencies.py    # Auth dependency injection
+│   ├── email.py           # Email sender (SMTP/console)
+│   ├── logging.py         # Structured logging
+│   ├── middleware.py       # Request ID middleware
+│   ├── rate_limit.py      # SlowAPI limiter
+│   ├── security.py        # JWT + password hashing (PyJWT)
+│   └── timezone.py        # User timezone utilities
+├── models/
+│   ├── user.py            # User, profiles, settings
+│   └── goal.py            # Goal, schedule, tasks, logs, patterns
+├── schemas/               # Pydantic request/response models
+├── routers/               # FastAPI route handlers
+└── services/              # Business logic
+    ├── auth_service.py
+    ├── checkin_service.py
+    ├── constraint_solver.py
+    ├── goal_service.py
+    ├── insights_service.py
+    ├── llm_service.py
+    ├── onboarding_service.py
+    └── schedule_service.py
+tests/                     # pytest test suite
+alembic/                   # Database migrations
 ```
 
 ---
 
-## What's Built (Phase 1)
+## License
 
-- ✅ User registration with JWT tokens
-- ✅ Login with timing-attack-safe password verification
-- ✅ Token refresh flow
-- ✅ Auth guard (Bearer token dependency)
-- ✅ Full onboarding flow (5 steps)
-- ✅ Academic profile with intern support
-- ✅ Health profile (optional)
-- ✅ Behavioural profile with auto-derived peak energy
-- ✅ Fixed blocks bulk creation with date range support
-- ✅ Goal creation with single-active-goal enforcement
-- ✅ Soft deletes everywhere
-- ✅ Full DB schema with all constraints and partial indexes
-- ✅ Onboarding status/resume endpoint
-
-## What's Next (Phase 2)
-
-- [ ] Constraint solver service
-- [ ] Schedule generation endpoint
-- [ ] GET /schedule/today
-- [ ] GET /schedule/week
-
----
-
-## Resetting the Database (During Development)
-
-```bash
-# Stop and remove containers + volumes
-docker-compose down -v
-
-# Restart fresh
-docker-compose up -d
-
-# Re-run migrations
-alembic upgrade head
-```
+MIT

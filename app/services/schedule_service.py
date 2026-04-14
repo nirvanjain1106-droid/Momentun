@@ -681,3 +681,53 @@ async def _get_or_create_weekly_plan(
     db.add(plan)
     await db.flush()
     return plan
+
+
+# ── Background LLM Enrichment (Fix #9 — offloaded) ──────────
+
+
+async def enrich_schedule_with_llm(
+    schedule_id: uuid.UUID,
+    prompt: str,
+    groq_api_key: str,
+    preferred_model: str = "primary",
+) -> None:
+    """
+    Background task: call LLM and update schedule enrichment in DB.
+    Called after the fast solver response is already returned to the client.
+    """
+    from app.database import AsyncSessionLocal
+
+    try:
+        enrichment = await call_llm(prompt, groq_api_key, preferred_model=preferred_model)
+        if not enrichment:
+            return
+
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(Schedule).where(Schedule.id == schedule_id)
+            )
+            schedule = result.scalar_one_or_none()
+            if not schedule:
+                return
+
+            if enrichment.get("strategy_note"):
+                schedule.strategy_note = str(enrichment["strategy_note"])[:500]
+            if enrichment.get("day_type_reason"):
+                schedule.day_type_reason = str(enrichment["day_type_reason"])[:500]
+
+            # Update task descriptions
+            task_descs = enrichment.get("task_descriptions", {})
+            if task_descs and isinstance(task_descs, dict):
+                tasks_result = await db.execute(
+                    select(Task).where(Task.schedule_id == schedule_id)
+                )
+                for task in tasks_result.scalars().all():
+                    if task.title in task_descs:
+                        task.description = str(task_descs[task.title])[:500]
+
+            await db.commit()
+            logger.info("background_llm_enrichment_complete", extra={"schedule_id": str(schedule_id)})
+    except Exception:
+        logger.exception("background_llm_enrichment_failed", extra={"schedule_id": str(schedule_id)})
+
