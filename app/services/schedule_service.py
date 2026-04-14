@@ -294,7 +294,6 @@ async def _get_fixed_blocks_for_date(
     day_of_week    = (python_weekday + 2) % 7 or 7
 
     # Fix #10 — filter by day at DB level, date range in Python (ARRAY contains)
-    from sqlalchemy import and_, or_
     result = await db.execute(
         select(FixedBlock).where(
             and_(
