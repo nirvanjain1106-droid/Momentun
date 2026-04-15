@@ -1,7 +1,7 @@
-import { ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Sidebar } from './Sidebar';
-import { BottomNav } from './BottomNav';
+import { Sidebar } from './Sidebar.tsx';
+import { BottomNav } from './BottomNav.tsx';
 import classes from './AppShell.module.css';
 import { useAuthStore } from '../../stores/authStore';
 
