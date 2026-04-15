@@ -69,8 +69,9 @@ async def get_patterns(
 async def get_trajectory(
     user: User,
     db: AsyncSession,
+    goal_id: Optional[uuid.UUID] = None,
 ) -> TrajectoryResponse:
-    goal = await _require_active_goal(user.id, db)
+    goal = await _require_active_goal(user.id, db, goal_id)
     behavioural = await _require_behavioural_profile(user.id, db)
     return await calculate_trajectory(
         user_id=user.id,
@@ -1000,7 +1001,26 @@ async def _get_active_goal(
 async def _require_active_goal(
     user_id: uuid.UUID,
     db: AsyncSession,
+    goal_id: Optional[uuid.UUID] = None,
 ) -> Goal:
+    if goal_id:
+        result = await db.execute(
+            select(Goal).where(
+                and_(
+                    Goal.id == goal_id,
+                    Goal.user_id == user_id,
+                    Goal.deleted_at.is_(None)
+                )
+            )
+        )
+        goal = result.scalar_one_or_none()
+        if not goal:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Goal not found"
+            )
+        return goal
+
     goal = await _get_active_goal(user_id, db)
     if goal:
         return goal

@@ -11,6 +11,7 @@ from app.schemas.goals import (
     GoalStatusUpdateRequest,
     GoalReorderRequest,
     GoalListResponse,
+    GoalCreateRequest,
 )
 from app.services import goal_service
 
@@ -33,6 +34,37 @@ async def list_goals(
     status: Optional[str] = Query(None, description="Filter by status: active, paused, achieved, abandoned"),
 ) -> GoalListResponse:
     return await goal_service.list_all_goals(current_user.id, db, status_filter=status)
+
+
+@router.post(
+    "",
+    response_model=GoalDetailResponse,
+    summary="Create a new goal",
+    description="Creates a new active goal. Will fail if the user already has 3 active goals.",
+    status_code=201,
+)
+@limiter.limit(settings.RATE_LIMIT_DEFAULT)
+async def create_goal(
+    request: Request,
+    data: GoalCreateRequest,
+    current_user: CurrentUserComplete,
+    db: DB,
+) -> GoalDetailResponse:
+    return await goal_service.create_goal(current_user.id, data, db)
+
+
+@router.get(
+    "/{goal_id}",
+    response_model=GoalDetailResponse,
+    summary="Get a specific goal",
+    description="Returns details for a specific goal by ID.",
+)
+async def get_goal(
+    goal_id: uuid.UUID,
+    current_user: CurrentUserComplete,
+    db: DB,
+) -> GoalDetailResponse:
+    return await goal_service.get_goal(current_user.id, goal_id, db)
 
 
 @router.get(

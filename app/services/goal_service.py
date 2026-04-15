@@ -18,7 +18,7 @@ from sqlalchemy import select, and_, func
 from fastapi import HTTPException, status
 
 from app.models.goal import Goal, Task, Schedule
-from app.schemas.goals import GoalUpdateRequest, GoalDetailResponse, GoalListResponse
+from app.schemas.goals import GoalUpdateRequest, GoalDetailResponse, GoalListResponse, GoalCreateRequest
 from app.core.constants import MAX_ACTIVE_GOALS
 
 logger = logging.getLogger(__name__)
@@ -64,6 +64,12 @@ async def get_active_goals(user_id: uuid.UUID, db: AsyncSession) -> list[Goal]:
     return list(result.scalars().all())
 
 
+async def get_goal(user_id: uuid.UUID, goal_id: uuid.UUID, db: AsyncSession) -> GoalDetailResponse:
+    """Get a specific goal by ID."""
+    goal = await _get_user_goal(user_id, goal_id, db)
+    return await _build_goal_response(goal, db)
+
+
 async def list_all_goals(
     user_id: uuid.UUID,
     db: AsyncSession,
@@ -99,7 +105,49 @@ async def list_all_goals(
     )
 
 
-# ── Update ────────────────────────────────────────────────────
+# ── Create / Update ──────────────────────────────────────────
+
+async def create_goal(
+    user_id: uuid.UUID,
+    data: GoalCreateRequest,
+    db: AsyncSession,
+) -> GoalDetailResponse:
+    """Create a new active goal with the specified target date."""
+    active_count = await _count_active_goals(user_id, db)
+    if active_count >= MAX_ACTIVE_GOALS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot exceed maximum {MAX_ACTIVE_GOALS} active goals"
+        )
+
+    next_rank = await _next_rank(user_id, db)
+    
+    target_date_obj: date
+    if isinstance(data.target_date, str):
+        target_date_obj = date.fromisoformat(data.target_date)
+    else:
+        target_date_obj = data.target_date
+    
+    goal = Goal(
+        user_id=user_id,
+        title=data.title,
+        goal_type=data.goal_type,
+        description=data.description,
+        target_date=target_date_obj,
+        motivation=data.motivation,
+        consequence=data.consequence,
+        success_metric=data.success_metric,
+        goal_metadata=data.metadata,
+        status="active",
+        priority_rank=next_rank
+    )
+    db.add(goal)
+    await db.flush()
+    await _mark_today_schedule_stale(user_id, db)
+    
+    logger.info("goal_created", extra={"goal_id": str(goal.id), "user_id": str(user_id)})
+    return await _build_goal_response(goal, db)
+
 
 
 async def update_goal(

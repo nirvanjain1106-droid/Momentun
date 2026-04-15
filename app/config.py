@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     RATE_LIMIT_LLM: str = "3/hour"  # Strict limit for LLM-triggering endpoints
 
     # CORS
-    ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:5173,http://localhost:8080"
+    ALLOWED_ORIGIN_REGEX: str = r"^https://momentum(-[a-z0-9]+)*\.vercel\.app$|^http://localhost:(5173|3000|8080)$"
 
     # Email / SMTP
     SMTP_HOST: str = ""
@@ -52,9 +52,7 @@ class Settings(BaseSettings):
     # Monitoring
     SENTRY_DSN: str = ""
 
-    @property
-    def ALLOWED_ORIGINS_LIST(self) -> list[str]:
-        return [o.strip() for o in self.ALLOWED_ORIGINS.split(",")]
+
 
     @model_validator(mode="after")
     def enforce_secret_key(self) -> "Settings":

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Query, Request, Response, HTTPException, status
 from app.config import settings
 from app.core.rate_limit import limiter
 from app.core.dependencies import CurrentUser, DB
@@ -31,8 +31,18 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
     ),
 )
 @limiter.limit(settings.RATE_LIMIT_AUTH)
-async def register(request: Request, data: RegisterRequest, db: DB) -> TokenResponse:
-    return await auth_service.register_user(data, db)
+async def register(request: Request, response: Response, data: RegisterRequest, db: DB) -> TokenResponse:
+    auth_response, refresh_token = await auth_service.register_user(data, db)
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=True,
+        samesite="none",
+        path="/api/v1/auth/refresh",
+        max_age=604800,
+    )
+    return auth_response
 
 
 @router.post(
@@ -41,8 +51,18 @@ async def register(request: Request, data: RegisterRequest, db: DB) -> TokenResp
     summary="Login with email and password",
 )
 @limiter.limit(settings.RATE_LIMIT_AUTH)
-async def login(request: Request, data: LoginRequest, db: DB) -> TokenResponse:
-    return await auth_service.login_user(data, db)
+async def login(request: Request, response: Response, data: LoginRequest, db: DB) -> TokenResponse:
+    auth_response, refresh_token = await auth_service.login_user(data, db)
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=True,
+        samesite="none",
+        path="/api/v1/auth/refresh",
+        max_age=604800,
+    )
+    return auth_response
 
 
 @router.post(
@@ -54,8 +74,22 @@ async def login(request: Request, data: LoginRequest, db: DB) -> TokenResponse:
         "Use this when the access token expires (every 30 minutes)."
     ),
 )
-async def refresh(data: RefreshRequest, db: DB) -> AccessTokenResponse:
-    result = await auth_service.refresh_access_token(data.refresh_token, db)
+async def refresh(request: Request, db: DB, data: RefreshRequest | None = None) -> AccessTokenResponse:
+    content_type = request.headers.get("content-type")
+    if content_type != "application/json":
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Content-Type must be application/json",
+        )
+        
+    refresh_token = request.cookies.get("refresh_token")
+    if not refresh_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token missing in cookies",
+        )
+
+    result = await auth_service.refresh_access_token(refresh_token, db)
     return AccessTokenResponse(**result)
 
 
@@ -112,6 +146,15 @@ async def confirm_password_reset(
         "The client should delete any stored access and refresh tokens."
     ),
 )
-async def logout(current_user: CurrentUser) -> LogoutResponse:
+async def logout(current_user: CurrentUser, response: Response) -> LogoutResponse:
     result = await auth_service.logout()
+    response.set_cookie(
+        key="refresh_token",
+        value="",
+        httponly=True,
+        secure=True,
+        samesite="none",
+        path="/api/v1/auth/refresh",
+        max_age=0,
+    )
     return LogoutResponse(message=result.message)

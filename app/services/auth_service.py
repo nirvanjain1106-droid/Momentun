@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 DUMMY_PASSWORD_HASH = "$2b$12$wli3xY5XI7V3xjIZ3Qw2AOm9mN67MM9YuPusSsUNnN7DTHt2fMCT."
 
 
-async def register_user(data: RegisterRequest, db: AsyncSession) -> TokenResponse:
+async def register_user(data: RegisterRequest, db: AsyncSession) -> tuple[TokenResponse, str]:
     """
     Create a new user account.
     Returns JWT tokens immediately so the user can proceed to onboarding.
@@ -72,16 +72,16 @@ async def register_user(data: RegisterRequest, db: AsyncSession) -> TokenRespons
     access_token = create_access_token(user.id, user.email)
     refresh_token = create_refresh_token(user.id)
 
-    return TokenResponse(
+    response = TokenResponse(
         access_token=access_token,
-        refresh_token=refresh_token,
         user_id=user.id,
         onboarding_complete=user.onboarding_complete,
         onboarding_step=user.onboarding_step,
     )
+    return response, refresh_token
 
 
-async def login_user(data: LoginRequest, db: AsyncSession) -> TokenResponse:
+async def login_user(data: LoginRequest, db: AsyncSession) -> tuple[TokenResponse, str]:
     """
     Authenticate user.
     Timing-attack-safe: always runs verify_password even when user not found.
@@ -107,13 +107,13 @@ async def login_user(data: LoginRequest, db: AsyncSession) -> TokenResponse:
     access_token = create_access_token(user.id, user.email)
     refresh_token = create_refresh_token(user.id)
 
-    return TokenResponse(
+    response = TokenResponse(
         access_token=access_token,
-        refresh_token=refresh_token,
         user_id=user.id,
         onboarding_complete=user.onboarding_complete,
         onboarding_step=user.onboarding_step,
     )
+    return response, refresh_token
 
 
 async def refresh_access_token(refresh_token: str, db: AsyncSession) -> dict:

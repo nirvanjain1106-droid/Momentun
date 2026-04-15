@@ -1,3 +1,4 @@
+import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Query, Request
@@ -53,8 +54,9 @@ async def get_trajectory(
     request: Request,
     current_user: CurrentUserComplete,
     db: DB,
+    goal_id: Optional[uuid.UUID] = Query(None, description="Optional specific goal ID"),
 ) -> TrajectoryResponse:
-    return await insights_service.get_trajectory(current_user, db)
+    return await insights_service.get_trajectory(current_user, db, goal_id)
 
 
 @router.get(

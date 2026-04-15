@@ -44,7 +44,6 @@ class LoginRequest(BaseModel):
 
 class TokenResponse(BaseModel):
     access_token: str
-    refresh_token: str
     token_type: str = "bearer"
     user_id: uuid.UUID
     onboarding_complete: bool
@@ -52,7 +51,7 @@ class TokenResponse(BaseModel):
 
 
 class RefreshRequest(BaseModel):
-    refresh_token: str
+    pass
 
 
 class AccessTokenResponse(BaseModel):

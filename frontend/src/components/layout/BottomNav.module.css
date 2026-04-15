@@ -1,0 +1,39 @@
+.bottomNav {
+  display: flex;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 64px;
+  background-color: var(--bg-secondary);
+  border-top: 1px solid var(--border-color);
+  z-index: 100;
+  justify-content: space-around;
+  align-items: center;
+  /* Glass effect for iOS feel */
+  background: rgba(26, 29, 36, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+@media (min-width: 768px) {
+  .bottomNav {
+    display: none;
+  }
+}
+
+.navItem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  text-decoration: none;
+  padding: var(--spacing-2);
+  border-radius: var(--border-radius-lg);
+  transition: all var(--transition-fast);
+}
+
+.navItem.active {
+  color: var(--accent-primary);
+}

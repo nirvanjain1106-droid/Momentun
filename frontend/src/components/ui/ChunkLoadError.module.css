@@ -1,0 +1,40 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  width: 100vw;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  padding: var(--spacing-4);
+  text-align: center;
+}
+
+.title {
+  font-size: var(--font-size-2xl);
+  color: var(--status-error);
+  margin-bottom: var(--spacing-2);
+}
+
+.message {
+  font-size: var(--font-size-md);
+  color: var(--text-secondary);
+  margin-bottom: var(--spacing-6);
+  max-width: 400px;
+}
+
+.retryButton {
+  padding: var(--spacing-3) var(--spacing-6);
+  background-color: var(--accent-primary);
+  color: white;
+  border: none;
+  border-radius: var(--border-radius-md);
+  font-size: var(--font-size-md);
+  font-weight: 500;
+  transition: background-color var(--transition-fast);
+}
+
+.retryButton:hover {
+  background-color: var(--accent-primary-hover);
+}
