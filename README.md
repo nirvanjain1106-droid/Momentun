@@ -2,7 +2,7 @@
 
 **AI-powered adaptive scheduling** that learns your behaviour patterns and adjusts your daily plan automatically.
 
-Built with FastAPI, PostgreSQL, and a constraint-based scheduling engine enhanced with LLM-generated coaching.
+Built with FastAPI, PostgreSQL, and a two-pass constraint-based scheduling engine supporting up to 3 concurrent goals, enhanced with LLM-generated coaching.
 
 ---
 
@@ -18,18 +18,18 @@ Built with FastAPI, PostgreSQL, and a constraint-based scheduling engine enhance
               ┌────────────┼────────────┐
               │            │            │
     ┌─────────▼──┐  ┌──────▼─────┐  ┌──▼──────────┐
-    │ Constraint  │  │  LLM       │  │  Pattern    │
-    │ Solver      │  │  Service   │  │  Engine     │
-    │ (greedy     │  │ (OpenRouter│  │ (insights,  │
-    │  scheduler) │  │  /Groq/    │  │  trajectory)│
-    └────────────┘  │  Ollama)   │  └─────────────┘
-                    └────────────┘
+    │ Two-Pass   │  │  LLM       │  │  Pattern    │
+    │ Constraint │  │  Service   │  │  Engine     │
+    │ Solver     │  │ (OpenRouter│  │ (insights,  │
+    │ (floor +   │  │  /Groq/    │  │  trajectory)│
+    │  greedy)   │  │  Ollama)   │  │             │
+    └────────────┘  └────────────┘  └─────────────┘
 ```
 
 ### Request Flow
 1. **Auth** → JWT-based (register, login, verify email, password reset)
 2. **Onboarding** → Academic → Health (encrypted) → Behavioural → Fixed Blocks → Goal
-3. **Scheduling** → Health-adjusted constraint solver → LLM enrichment (with token tracking) → Daily schedule
+3. **Scheduling** → Portfolio-level two-pass solver (floor + greedy) → LLM enrichment (with token tracking) → Daily schedule
 4. **Tasks** → Real-time complete/park (row-locked) → Parking lot management → Quick-add → Undo/reschedule
 5. **Check-ins** → Morning (energy/mood) → Day type adjustment → Evening (task completions)
 6. **Insights** → Pattern detection (7 detectors + Golden Hour) → Streak tracking → Heatmap → Trajectory → Weekly reports
@@ -74,11 +74,18 @@ Built with FastAPI, PostgreSQL, and a constraint-based scheduling engine enhance
 - [x] Bulk delete for stale parking lot cleanup
 - [x] **Quick-add** — zero-friction task capture (title + duration, straight to parking lot)
 
-### Goal Lifecycle (Phase 4)
-- [x] List all goals (active + history with progress)
+### Goal Lifecycle (Commit 3 — Multi-Goal Portfolio)
+- [x] **Up to 3 concurrent active goals** with rank-based priority
+- [x] **Two-pass constraint solver** — Pass 1: best-effort floor (1 Core task/goal), Pass 2: global greedy by rank
+- [x] **Rank management** — service-side compaction with `SELECT FOR UPDATE` row-level locks
+- [x] **Goal reordering** — negative temp ranks to avoid CHECK constraint violations
+- [x] **pre_pause_rank** — snapshots original rank on pause for frontend resume options
+- [x] **Expired task status** — horizon line auto-expires tasks past `scheduled_end` + grace window
+- [x] **Cross-day cleanup** — zombie active tasks from past schedules are expired on next fetch
+- [x] **Stale schedule regeneration** — crash-safe lock with 120s timeout, no-LLM fast path
+- [x] List all goals (active + history with progress, `?status=` filter)
 - [x] Goal progress percentage (computed from TaskLog data)
-- [x] Full status transitions: active → paused / achieved / abandoned
-- [x] Single-active-goal enforcement
+- [x] Full status transitions: active → paused / achieved / abandoned, paused → active (cap-enforced)
 - [x] Goal CRUD (update, pause, resume, soft-delete)
 
 ### Intelligence (Phase 3 + Commit 2)
@@ -184,15 +191,16 @@ Built with FastAPI, PostgreSQL, and a constraint-based scheduling engine enhance
 | `GET`  | `/api/v1/insights/streak` | Current & best streak |
 | `GET`  | `/api/v1/insights/heatmap` | Activity heatmap (?days=90) |
 
-### Goals
+### Goals *(updated in Commit 3)*
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET`  | `/api/v1/goals` | List all goals (active + history) |
-| `GET`  | `/api/v1/goals/active` | Get current active goal |
+| `GET`  | `/api/v1/goals` | List all goals (`?status=active\|paused\|achieved`) |
+| `GET`  | `/api/v1/goals/active` | Get highest-ranked active goal |
 | `PUT`  | `/api/v1/goals/{id}` | Update a goal |
-| `PATCH`| `/api/v1/goals/{id}/status` | Transition status (pause/achieve/abandon) |
-| `POST` | `/api/v1/goals/{id}/pause` | Pause active goal |
-| `POST` | `/api/v1/goals/{id}/resume` | Resume paused goal |
+| `PATCH`| `/api/v1/goals/{id}/status` | Transition status (pause/achieve/abandon/resume) |
+| `POST` | `/api/v1/goals/{id}/pause` | Pause active goal (snapshots rank) |
+| `POST` | `/api/v1/goals/{id}/resume` | Resume paused goal (assigns bottom rank, enforces 3-goal cap) |
+| `PUT`  | `/api/v1/goals/reorder` | Reorder active goals by priority |
 | `DELETE`| `/api/v1/goals/{id}` | Soft-delete a goal |
 
 ### Infrastructure
@@ -271,11 +279,17 @@ pytest -q
 # Run with coverage
 pytest --cov=app --cov-report=term-missing
 
-# Run specific test file
-pytest tests/test_constraint_solver.py -v
+# Multi-goal solver tests (12 tests)
+pytest tests/test_multi_goal_solver.py -v
 
-# LLM fallback chain tests
-pytest tests/test_llm_service.py -v
+# Goal service tests (12 tests)
+pytest tests/test_goal_service.py -v
+
+# Schedule logic tests (11 tests)
+pytest tests/test_schedule_logic.py -v
+
+# Schema regression tests (3 tests)
+pytest tests/test_multi_goal_schemas.py -v
 
 # Lint
 ruff check app tests
@@ -338,16 +352,16 @@ app/
 └── services/              # Business logic
     ├── auth_service.py
     ├── checkin_service.py
-    ├── constraint_solver.py
-    ├── goal_service.py
+    ├── constraint_solver.py  # + two-pass multi-goal allocator, GoalTaskGroup
+    ├── goal_service.py       # + rank management, reorder, compaction, stale marking
     ├── insights_service.py   # + golden_hour, get_streak, get_heatmap
     ├── llm_service.py        # + token tracking, usage logging
     ├── onboarding_service.py # + field-level encryption on health notes
-    ├── schedule_service.py   # + health→solver integration, bankruptcy, sick mode
+    ├── schedule_service.py   # + portfolio generation, horizon line, stale regen, cross-day cleanup
     ├── task_service.py       # + row-locking, quick-add
     └── user_service.py       # (new) profile, export, feedback, pause, day-score
-tests/                     # pytest test suite
-alembic/                   # Database migrations
+tests/                     # pytest test suite (97 tests)
+alembic/                   # Database migrations (005 = multi-goal portfolio)
 ```
 
 ---
@@ -360,6 +374,21 @@ alembic/                   # Database migrations
 | `feedback` | User bug reports and sentiment feedback |
 | `tasks.slot_reasons` | JSONB column explaining why each task was placed at its time slot |
 | `users.paused_at/until/reason` | Sick mode / vacation freeze state |
+
+## Database Changes (Commit 3 — Multi-Goal)
+
+| Change | Purpose |
+|--------|---------|
+| `goals.priority_rank` | Active goal rank (1=highest). NULL when inactive. |
+| `goals.pre_pause_rank` | Cached rank before pause, for frontend resume options |
+| `tasks.goal_id` | Foreign key linking task to its parent goal |
+| `tasks.goal_rank_snapshot` | Historical rank at scheduling time |
+| `tasks.task_status` += `expired` | New status for horizon-line and cross-day expired tasks |
+| `schedules.is_stale` | Signals schedule needs regeneration after rank/goal changes |
+| `schedules.is_regenerating` | Crash-safe concurrent regen lock (120s timeout) |
+| `schedules.regeneration_started_at` | Timestamp for regen lock timeout calculation |
+| Partial unique index | `(user_id, priority_rank) WHERE status='active'` — prevents rank collisions |
+| Bidirectional CHECK | `(active ↔ rank NOT NULL)` and `(inactive ↔ rank NULL)` |
 
 ---
 

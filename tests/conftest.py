@@ -37,6 +37,9 @@ def make_goal(**overrides):
         "status": "active",
         "goal_metadata": {"subjects": ["math", "physics"], "weak_subjects": ["math"], "strong_subjects": ["physics"]},
         "deleted_at": None,
+        # Commit 3: multi-goal rank fields
+        "priority_rank": None,
+        "pre_pause_rank": None,
     }
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
@@ -73,6 +76,10 @@ class _FakeResult:
         self._value = value
 
     def scalar_one_or_none(self):
+        return self._value
+
+    def scalar(self):
+        """Return scalar value (for aggregate queries like COUNT, MAX)."""
         return self._value
 
     def scalars(self):
