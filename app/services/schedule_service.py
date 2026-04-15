@@ -1,11 +1,14 @@
 """
-Schedule Service — Phase 3
+Schedule Service — Commit 3 (Multi-Goal Portfolio)
 
-Fixes applied:
-- #3  Race-safe schedule creation (catch unique constraint violation, return existing)
-- #4  Async LLM call (await call_llm)
-- #7  Surface unscheduled/parked tasks in response
-- #8  Fixed block overlap check before building solver
+Portfolio ownership: schedules are user-day scoped (no goal_id on Schedule).
+Tasks still belong to individual goals via task.goal_id.
+
+Fixes from architecture review:
+- Cross-day cleanup: expire active tasks from past schedules
+- Horizon Line: uses scheduled_end in user timezone with grace window
+- Stale contract: is_stale + is_regenerating + regeneration_started_at (with crash recovery)
+- Parked tasks: filtered by active goal IDs, not bare user_id
 """
 
 import asyncio
@@ -31,15 +34,18 @@ from app.schemas.schedule import (
 )
 from app.schemas.insights import PatternResponse
 from app.services.constraint_solver import (
-    ConstraintSolver, FixedBlockData, TaskRequirement,
+    ConstraintSolver, FixedBlockData, TaskRequirement, GoalTaskGroup,
     PRIORITY_CORE, PRIORITY_NORMAL,
     generate_exam_tasks, generate_fitness_tasks
 )
-from app.core.constants import PRIORITY_LABELS
+from app.core.constants import (
+    PRIORITY_LABELS, HORIZON_GRACE_MINS, REGEN_LOCK_TIMEOUT_SECS,
+)
 from app.services.llm_service import (
     build_schedule_prompt, call_llm, build_fallback_enrichment
 )
 from app.services import insights_service
+from app.services import goal_service
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -51,8 +57,8 @@ async def generate_schedule(
     db: AsyncSession,
 ) -> ScheduleResponse:
     """
-    Generate a schedule for a given date.
-    Fix #3 — race-safe: if concurrent request already created it, return that.
+    Generate a portfolio-level schedule for a given date.
+    Collects tasks from ALL active goals and runs the two-pass allocator.
     """
     target_date = (
         date.fromisoformat(data.target_date)
@@ -63,7 +69,7 @@ async def generate_schedule(
     # Return existing schedule if already generated
     existing = await _get_existing_schedule(user.id, target_date, db)
     if existing:
-        return await _build_schedule_response(existing, db)
+        return await _build_schedule_response(existing, user.id, db)
 
     # Load required profiles
     behavioural = await _get_behavioural_profile(user.id, db)
@@ -93,24 +99,43 @@ async def generate_schedule(
             capacity_modifier *= 0.90
         # Focus difficulty → shorter blocks
         if health_profile.has_focus_difficulty:
-            max_block_mins = 30  # Pomodoro-style  # noqa: F841 — will be used when solver supports block limits
+            max_block_mins = 30  # noqa: F841 — will be used when solver supports block limits
         # Afternoon crash → avoid high-energy tasks after 2 PM
         if health_profile.has_afternoon_crash:
             avoid_afternoon_peak = True  # noqa: F841 — will be used when solver supports afternoon guard
 
-    goal = await _get_active_goal(user.id, db)
-    if not goal:
+    # Multi-goal: fetch all active goals
+    active_goals = await goal_service.get_active_goals(user.id, db)
+    if not active_goals:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Create a goal before generating a schedule.",
         )
 
-    active_patterns, trajectory = await insights_service.get_live_schedule_context(
-        user=user,
-        goal=goal,
-        db=db,
-        target_date=target_date,
-    )
+    # Build GoalTaskGroups for the two-pass allocator
+    goal_task_groups: List[GoalTaskGroup] = []
+    primary_goal = active_goals[0]  # Highest ranked for LLM/insights context
+
+    for goal in active_goals:
+        active_patterns, trajectory = await insights_service.get_live_schedule_context(
+            user=user,
+            goal=goal,
+            db=db,
+            target_date=target_date,
+        )
+
+        task_requirements = _generate_task_requirements(
+            goal,
+            behavioural,
+            active_patterns,
+        )
+
+        goal_task_groups.append(GoalTaskGroup(
+            goal_id=str(goal.id),
+            goal_rank=goal.priority_rank or 999,
+            goal_title=goal.title,
+            tasks=task_requirements,
+        ))
 
     fixed_blocks = await _get_fixed_blocks_for_date(user.id, target_date, db)
 
@@ -145,28 +170,22 @@ async def generate_schedule(
         chronotype=behavioural.chronotype,
     )
 
-    task_requirements = _generate_task_requirements(
-        goal,
-        behavioural,
-        active_patterns,
-    )
-
     solver_result = solver.solve(
         target_date=target_date,
-        task_requirements=task_requirements,
+        goal_task_groups=goal_task_groups,
         day_type=data.day_type or "standard",
     )
 
-    # Fix #4 — await async LLM
+    # LLM enrichment — portfolio-level narrative
     enrichment = None
     prompt = None
     if data.use_llm:
-        days_until_deadline = (goal.target_date - target_date).days
+        days_until_deadline = (primary_goal.target_date - target_date).days
         prompt = build_schedule_prompt(
             solver_result=solver_result,
-            goal_title=goal.title,
-            goal_type=goal.goal_type,
-            goal_metadata=goal.goal_metadata or {},
+            goal_title=primary_goal.title,
+            goal_type=primary_goal.goal_type,
+            goal_metadata=primary_goal.goal_metadata or {},
             chronotype=behavioural.chronotype,
             self_reported_failure=behavioural.self_reported_failure,
             days_until_deadline=days_until_deadline,
@@ -177,21 +196,20 @@ async def generate_schedule(
         enrichment = await call_llm(prompt, settings.GROQ_API_KEY, preferred_model=preferred_model)
 
     if not enrichment:
-        days_until_deadline = (goal.target_date - target_date).days
+        days_until_deadline = (primary_goal.target_date - target_date).days
         enrichment = build_fallback_enrichment(
             solver_result,
-            goal.title,
+            primary_goal.title,
             days_until_deadline,
             active_patterns=active_patterns,
             trajectory=trajectory,
         )
     enrichment = _sanitize_enrichment(enrichment, solver_result)
 
-    # Fix #3 — race-safe save
+    # Race-safe save
     try:
         schedule = await _save_schedule(
             user_id=user.id,
-            goal_id=goal.id,
             target_date=target_date,
             solver_result=solver_result,
             enrichment=enrichment,
@@ -203,13 +221,13 @@ async def generate_schedule(
         await db.rollback()
         existing = await _get_existing_schedule(user.id, target_date, db)
         if existing:
-            return await _build_schedule_response(existing, db)
+            return await _build_schedule_response(existing, user.id, db)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Schedule creation conflict. Please retry.",
         )
 
-    return await _build_schedule_response(schedule, db)
+    return await _build_schedule_response(schedule, user.id, db)
 
 
 async def get_today_schedule(user: User, db: AsyncSession) -> ScheduleResponse:
@@ -233,6 +251,9 @@ async def get_today_schedule(user: User, db: AsyncSession) -> ScheduleResponse:
         )
 
     today = get_user_today(user.timezone)
+
+    # ── Cross-day cleanup: expire active tasks from past schedules ──
+    await _cross_day_cleanup(user.id, today, db)
 
     # Schedule bankruptcy detection — check for missed days
     from app.core.constants import BANKRUPTCY_INACTIVITY_DAYS
@@ -268,10 +289,20 @@ async def get_today_schedule(user: User, db: AsyncSession) -> ScheduleResponse:
         })
 
     existing = await _get_existing_schedule(user.id, today, db)
+
     if existing:
-        resp = await _build_schedule_response(existing, db)
+        # ── Apply Horizon Line (expire past tasks) ──
+        await _apply_horizon_line(user.id, existing, user.timezone, db)
+
+        # ── Stale contract: check if regeneration needed ──
+        if existing.is_stale:
+            existing = await _handle_stale_schedule(user, existing, today, db)
+
+        resp = await _build_schedule_response(existing, user.id, db)
         resp.recovery_mode = recovery_mode
+        resp.is_stale = existing.is_stale
         return resp
+
     resp = await generate_schedule(
         user,
         GenerateScheduleRequest(target_date=today.isoformat()),
@@ -284,18 +315,18 @@ async def get_today_schedule(user: User, db: AsyncSession) -> ScheduleResponse:
 async def regenerate_today_schedule(user: User, db: AsyncSession) -> ScheduleResponse:
     """
     Re-generate today's schedule from scratch.
-    Preserves completed tasks. Soft-deletes the old schedule.
+    Preserves completed + expired tasks. Soft-deletes the old schedule.
     """
     today = get_user_today(user.timezone)
     existing = await _get_existing_schedule(user.id, today, db)
 
     if existing:
-        # Mark non-completed tasks as deferred (they'll go to parking lot)
+        # Mark non-completed, non-expired tasks as deferred (they'll go to parking lot)
         tasks_result = await db.execute(
             select(Task).where(
                 and_(
                     Task.schedule_id == existing.id,
-                    Task.task_status != "completed",
+                    Task.task_status.notin_(["completed", "expired"]),
                     Task.deleted_at.is_(None),
                 )
             )
@@ -365,6 +396,178 @@ async def get_week_schedule(
 
 # ── Private helpers ───────────────────────────────────────────
 
+
+async def _cross_day_cleanup(
+    user_id: uuid.UUID, today: date, db: AsyncSession,
+) -> None:
+    """
+    Expire all active tasks from past schedules (not today).
+    Runs on every get_today_schedule call. No grace window for past days.
+    """
+    past_active = await db.execute(
+        select(Task).join(Schedule).where(
+            and_(
+                Task.user_id == user_id,
+                Task.task_status == "active",
+                Task.deleted_at.is_(None),
+                Schedule.schedule_date < today,
+                Schedule.deleted_at.is_(None),
+            )
+        )
+    )
+    expired_count = 0
+    for task in past_active.scalars().all():
+        task.previous_status = task.task_status
+        task.task_status = "expired"
+        expired_count += 1
+
+    if expired_count > 0:
+        await db.flush()
+        logger.info("cross_day_cleanup", extra={
+            "user_id": str(user_id), "expired_count": expired_count,
+        })
+
+
+async def _apply_horizon_line(
+    user_id: uuid.UUID,
+    schedule: Schedule,
+    user_tz: str,
+    db: AsyncSession,
+) -> None:
+    """
+    Expire tasks whose scheduled_end has passed (with grace window).
+    Uses schedule_date + scheduled_end to construct the actual datetime.
+    Only applies to today's schedule.
+    """
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+
+    now = datetime.now(ZoneInfo(user_tz))
+    today = now.date()
+
+    if schedule.schedule_date != today:
+        return  # Only apply to today's schedule
+
+    tasks_result = await db.execute(
+        select(Task).where(
+            and_(
+                Task.schedule_id == schedule.id,
+                Task.task_status == "active",
+                Task.scheduled_end.isnot(None),
+                Task.deleted_at.is_(None),
+            )
+        )
+    )
+
+    expired_count = 0
+    for task in tasks_result.scalars().all():
+        try:
+            end_parts = task.scheduled_end.split(":")
+            task_end_dt = datetime(
+                today.year, today.month, today.day,
+                int(end_parts[0]), int(end_parts[1]),
+                tzinfo=ZoneInfo(user_tz),
+            )
+            # Apply grace window
+            if now > task_end_dt + timedelta(minutes=HORIZON_GRACE_MINS):
+                task.previous_status = task.task_status
+                task.task_status = "expired"
+                expired_count += 1
+        except (ValueError, IndexError):
+            continue
+
+    if expired_count > 0:
+        await db.flush()
+        logger.info("horizon_line_applied", extra={
+            "user_id": str(user_id), "expired_count": expired_count,
+        })
+
+
+async def _handle_stale_schedule(
+    user: User,
+    schedule: Schedule,
+    today: date,
+    db: AsyncSession,
+) -> Schedule:
+    """
+    Handle stale schedule regeneration with crash-safe locking.
+    Returns the (possibly regenerated) schedule.
+    """
+    now_utc = datetime.now(timezone.utc)
+
+    # Check if another process is already regenerating
+    if schedule.is_regenerating:
+        if (
+            schedule.regeneration_started_at
+            and (now_utc - schedule.regeneration_started_at).total_seconds() > REGEN_LOCK_TIMEOUT_SECS
+        ):
+            # Stale lock — force-release
+            schedule.is_regenerating = False
+            schedule.regeneration_started_at = None
+            await db.flush()
+            logger.warning("stale_regen_lock_released", extra={
+                "user_id": str(user.id),
+                "schedule_id": str(schedule.id),
+            })
+        else:
+            # Active regen in progress — return stale schedule as-is
+            return schedule
+
+    # Claim the regeneration lock
+    schedule.is_regenerating = True
+    schedule.regeneration_started_at = now_utc
+    await db.flush()
+
+    try:
+        # Regenerate: defer non-completed/non-expired tasks
+        tasks_result = await db.execute(
+            select(Task).where(
+                and_(
+                    Task.schedule_id == schedule.id,
+                    Task.task_status.notin_(["completed", "expired"]),
+                    Task.deleted_at.is_(None),
+                )
+            )
+        )
+        for task in tasks_result.scalars().all():
+            task.previous_status = task.task_status
+            task.task_status = "deferred"
+            task.schedule_id = None
+            task.scheduled_start = None
+            task.scheduled_end = None
+
+        # Soft-delete old schedule
+        schedule.deleted_at = now_utc
+        await db.flush()
+
+        # Generate fresh
+        await generate_schedule(
+            user,
+            GenerateScheduleRequest(target_date=today.isoformat(), use_llm=False),
+            db,
+        )
+
+        # Fetch the new schedule
+        new_schedule = await _get_existing_schedule(user.id, today, db)
+        if new_schedule:
+            return new_schedule
+        return schedule  # fallback
+
+    except Exception:
+        logger.exception("stale_regen_failed", extra={
+            "user_id": str(user.id),
+            "schedule_id": str(schedule.id),
+        })
+        # Release the lock on failure
+        schedule.is_regenerating = False
+        schedule.regeneration_started_at = None
+        schedule.deleted_at = None  # Undelete
+        await db.flush()
+        return schedule
+
+
 async def _get_existing_schedule(
     user_id: uuid.UUID, target_date: date, db: AsyncSession
 ) -> Optional[Schedule]:
@@ -397,21 +600,6 @@ async def _get_health_profile(
     result = await db.execute(
         select(UserHealthProfile).where(
             UserHealthProfile.user_id == user_id
-        )
-    )
-    return result.scalar_one_or_none()
-
-
-async def _get_active_goal(
-    user_id: uuid.UUID, db: AsyncSession
-) -> Optional[Goal]:
-    result = await db.execute(
-        select(Goal).where(
-            and_(
-                Goal.user_id    == user_id,
-                Goal.status     == "active",
-                Goal.deleted_at.is_(None),
-            )
         )
     )
     return result.scalar_one_or_none()
@@ -471,7 +659,6 @@ def _check_block_overlaps(blocks: List[FixedBlock]) -> None:
         s2, _, t2 = normal_blocks[i + 1]
         if s2 < e1:
             # Overlap detected — log it but continue
-            # In production this would go to structured logging
             logger.warning("fixed_block_overlap_detected", extra={"block_1": t1, "block_2": t2})
 
 
@@ -558,17 +745,15 @@ def _apply_pattern_task_boosts(
 
 async def _save_schedule(
     user_id: uuid.UUID,
-    goal_id: uuid.UUID,
     target_date: date,
     solver_result,
     enrichment: dict,
     generation_prompt: Optional[str],
     db: AsyncSession,
 ) -> Schedule:
-    """Save schedule + scheduled tasks + parked tasks."""
+    """Save schedule + scheduled tasks + parked tasks (portfolio-level, no goal_id)."""
     schedule = Schedule(
         user_id=user_id,
-        goal_id=goal_id,
         schedule_date=target_date,
         day_type=solver_result.day_type,
         day_type_reason=enrichment.get("day_type_reason"),
@@ -582,13 +767,15 @@ async def _save_schedule(
 
     task_descriptions = enrichment.get("task_descriptions", {})
 
-    # Save scheduled tasks (including slot_reasons)
+    # Save scheduled tasks (including goal_id and goal_rank_snapshot)
     for solver_task in solver_result.scheduled_tasks:
         description = task_descriptions.get(solver_task.title, solver_task.description)
+        # Parse goal_id from solver's string UUID
+        task_goal_id = uuid.UUID(solver_task.goal_id) if solver_task.goal_id else None
         task = Task(
             schedule_id=schedule.id,
             user_id=user_id,
-            goal_id=goal_id,
+            goal_id=task_goal_id,
             title=solver_task.title,
             description=description,
             task_type=solver_task.task_type,
@@ -601,19 +788,22 @@ async def _save_schedule(
             sequence_order=solver_task.sequence_order,
             task_status="active",
             slot_reasons=getattr(solver_task, 'slot_reasons', None),
+            goal_rank_snapshot=solver_task.goal_rank_snapshot,
         )
         db.add(task)
 
-    # Fix #7 — save unscheduled tasks as "deferred" (Parking Lot)
+    # Save unscheduled tasks as "deferred" (Parking Lot)
     for i, unscheduled_task in enumerate(solver_result.unscheduled_tasks):
+        # Unscheduled tasks don't have goal_id on TaskRequirement,
+        # so we won't set it here. They go to the general parking lot.
         task = Task(
             schedule_id=None,   # not on any schedule — in parking lot
             user_id=user_id,
-            goal_id=goal_id,
+            goal_id=None,
             title=unscheduled_task.title,
             description=None,
             task_type=unscheduled_task.task_type,
-            scheduled_start=None,   # Fix #14 — no time for deferred tasks
+            scheduled_start=None,
             scheduled_end=None,
             duration_mins=unscheduled_task.duration_mins,
             energy_required=unscheduled_task.energy_required,
@@ -659,35 +849,42 @@ def _sanitize_enrichment(enrichment: dict, solver_result) -> dict:
 
 async def _build_schedule_response(
     schedule: Schedule,
+    user_id: uuid.UUID,
     db: AsyncSession,
 ) -> ScheduleResponse:
     """Load schedule + tasks and build full response with parked tasks."""
 
-    # Active + completed tasks on this schedule (Bug fix: completed tasks must stay visible)
+    # Active + completed + expired tasks on this schedule
     result = await db.execute(
         select(Task).where(
             and_(
                 Task.schedule_id == schedule.id,
-                Task.task_status.in_(["active", "completed"]),
+                Task.task_status.in_(["active", "completed", "expired"]),
                 Task.deleted_at.is_(None),
             )
         ).order_by(Task.sequence_order)
     )
     tasks = result.scalars().all()
 
-    # Fix #6 — only load parked tasks created today or not yet scheduled
-    result_parked = await db.execute(
-        select(Task).where(
-            and_(
-                Task.user_id     == schedule.user_id,
-                Task.goal_id     == schedule.goal_id,
-                Task.task_status.in_(["deferred", "parked"]),
-                Task.deleted_at.is_(None),
-                Task.created_at >= schedule.created_at - timedelta(hours=1),
-            )
-        ).order_by(Task.priority, Task.sequence_order)
-    )
-    parked_tasks = result_parked.scalars().all()
+    # Parked tasks: filter by active goal IDs (not bare user_id)
+    active_goals = await goal_service.get_active_goals(user_id, db)
+    active_goal_ids = [g.id for g in active_goals]
+
+    if active_goal_ids:
+        result_parked = await db.execute(
+            select(Task).where(
+                and_(
+                    Task.user_id == user_id,
+                    Task.goal_id.in_(active_goal_ids),
+                    Task.task_status.in_(["deferred", "parked"]),
+                    Task.deleted_at.is_(None),
+                    Task.created_at >= schedule.created_at - timedelta(hours=1),
+                )
+            ).order_by(Task.priority, Task.sequence_order)
+        )
+        parked_tasks = result_parked.scalars().all()
+    else:
+        parked_tasks = []
 
     task_responses = [
         TaskResponse(
@@ -705,6 +902,8 @@ async def _build_schedule_response(
             sequence_order=t.sequence_order,
             task_status=t.task_status,
             slot_reasons=t.slot_reasons,
+            goal_id=t.goal_id,
+            goal_rank_snapshot=t.goal_rank_snapshot,
         )
         for t in tasks
     ]
@@ -743,6 +942,7 @@ async def _build_schedule_response(
         total_tasks=len(task_responses),
         total_study_mins=total_study_mins,
         day_capacity_hrs=day_capacity_hrs,
+        is_stale=schedule.is_stale,
     )
 
 
@@ -771,11 +971,13 @@ async def _get_or_create_weekly_plan(
         "Small daily actions compound into big results."
     )
 
-    goal = await _get_active_goal(user.id, db)
-    if goal:
+    # Use the highest-ranked active goal for pattern context
+    active_goals = await goal_service.get_active_goals(user.id, db)
+    if active_goals:
+        primary_goal = active_goals[0]
         patterns, trajectory = await insights_service.get_live_schedule_context(
             user=user,
-            goal=goal,
+            goal=primary_goal,
             db=db,
             target_date=start_date,
         )
@@ -860,4 +1062,3 @@ async def enrich_schedule_with_llm(
             logger.info("background_llm_enrichment_complete", extra={"schedule_id": str(schedule_id)})
     except Exception:
         logger.exception("background_llm_enrichment_failed", extra={"schedule_id": str(schedule_id)})
-

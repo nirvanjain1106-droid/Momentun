@@ -56,6 +56,9 @@ class GoalDetailResponse(BaseModel):
     tasks_completed: Optional[int] = None
     tasks_total: Optional[int] = None
     days_remaining: Optional[int] = None
+    # Multi-goal rank (Commit 3)
+    priority_rank: Optional[int] = None
+    pre_pause_rank: Optional[int] = None
 
     model_config = {"from_attributes": True}
 
@@ -75,12 +78,26 @@ class GoalStatusUpdateRequest(BaseModel):
     @field_validator("status")
     @classmethod
     def valid_status(cls, v: str) -> str:
-        allowed = {"paused", "achieved", "abandoned"}
+        # 'active' is now allowed here for resume (multi-goal)
+        allowed = {"active", "paused", "achieved", "abandoned"}
         if v not in allowed:
             raise ValueError(
-                f"status must be one of: {', '.join(allowed)}. "
-                "Use POST /goals/{id}/resume to resume a paused goal."
+                f"status must be one of: {', '.join(sorted(allowed))}."
             )
+        return v
+
+
+class GoalReorderRequest(BaseModel):
+    """Reorder active goals by providing the desired order of goal IDs."""
+    goal_ids: List[uuid.UUID]
+
+    @field_validator("goal_ids")
+    @classmethod
+    def at_least_one(cls, v: List[uuid.UUID]) -> List[uuid.UUID]:
+        if len(v) == 0:
+            raise ValueError("Must provide at least one goal_id")
+        if len(v) > 3:
+            raise ValueError("Cannot have more than 3 active goals")
         return v
 
 
@@ -89,4 +106,3 @@ class GoalListResponse(BaseModel):
     goals: List[GoalDetailResponse]
     total: int
     active_count: int
-

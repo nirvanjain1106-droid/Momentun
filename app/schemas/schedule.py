@@ -2,6 +2,7 @@ import uuid
 from typing import Optional, List
 from pydantic import BaseModel, field_validator
 import re
+from datetime import date as date_type
 
 
 
@@ -44,8 +45,11 @@ class TaskResponse(BaseModel):
     priority_label: str           # "Core" | "Normal" | "Bonus"
     is_mvp_task: bool
     sequence_order: int
-    task_status: str              # "active" | "deferred" | "completed" | "parked"
+    task_status: str              # "active" | "deferred" | "completed" | "parked" | "expired"
     slot_reasons: Optional[List[str]] = None   # Why this time slot was chosen
+    # Multi-goal context (Commit 3)
+    goal_id: Optional[uuid.UUID] = None
+    goal_rank_snapshot: Optional[int] = None
 
     model_config = {"from_attributes": True}
 
@@ -81,6 +85,7 @@ class ScheduleResponse(BaseModel):
     day_capacity_hrs: float
     recovery_mode: bool = False      # True when returning after missed days
     is_paused: bool = False          # True when user is in sick/vacation mode
+    is_stale: bool = False           # True when rank/goal changes haven't been reflected yet
 
     model_config = {"from_attributes": True}
 

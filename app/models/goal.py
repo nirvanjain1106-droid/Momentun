@@ -50,6 +50,16 @@ class Goal(Base):
         nullable=False,
     )
 
+    # Multi-goal rank — only populated when status='active'
+    # NULL for paused/achieved/abandoned goals
+    priority_rank: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True, default=None,
+    )
+    # Snapshot of rank before pause — informational for frontend (v1)
+    pre_pause_rank: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True, default=None,
+    )
+
     # Goal-specific flexible data
     # exam:    {"subjects": [...], "weak_subjects": [...], "exam_pattern": "MCQ"}
     # fitness: {"goal_type": "muscle_gain", "equipment": "gym", ...}
@@ -66,15 +76,15 @@ class Goal(Base):
 
     # Relationships
     user: Mapped["User"] = relationship(back_populates="goals")  # noqa: F821
-    weekly_plans: Mapped[List["WeeklyPlan"]] = relationship(
-        back_populates="goal", cascade="all, delete-orphan"
-    )
     detected_patterns: Mapped[List["DetectedPattern"]] = relationship(
         back_populates="goal", cascade="all, delete-orphan"
     )
 
-    # Partial unique index enforced in migration 001_initial_schema:
-    # uq_one_active_goal_per_user ON goals(user_id) WHERE status='active' AND deleted_at IS NULL
+    # Partial unique index enforced in migration 005_multi_goal_portfolio:
+    # uq_goal_rank_per_user ON goals(user_id, priority_rank) WHERE status='active' AND deleted_at IS NULL
+    # CHECK constraint (bidirectional):
+    #   active goals MUST have non-NULL priority_rank
+    #   inactive goals MUST have NULL priority_rank
 
 
 class FixedBlock(Base):
@@ -139,6 +149,7 @@ class FixedBlock(Base):
 
 
 class WeeklyPlan(Base):
+    """Portfolio-level weekly narrative container (no longer goal-scoped)."""
     __tablename__ = "weekly_plans"
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -150,11 +161,7 @@ class WeeklyPlan(Base):
         nullable=False,
         index=True,
     )
-    goal_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("goals.id", ondelete="SET NULL"),
-        nullable=True,
-    )
+    # goal_id removed — weekly plans are now portfolio-level (Commit 3)
 
     week_start_date: Mapped[date] = mapped_column(Date, nullable=False)  # Monday
     week_end_date: Mapped[date] = mapped_column(Date, nullable=False)    # Sunday
@@ -186,16 +193,14 @@ class WeeklyPlan(Base):
         DateTime(timezone=True), nullable=True, default=None
     )
 
-    # Uniqueness handled in application layer (soft deletes)
-
     # Relationships
-    goal: Mapped[Optional["Goal"]] = relationship(back_populates="weekly_plans")
     schedules: Mapped[List["Schedule"]] = relationship(
         back_populates="weekly_plan", cascade="all, delete-orphan"
     )
 
 
 class Schedule(Base):
+    """Portfolio-level daily schedule (no longer goal-scoped)."""
     __tablename__ = "schedules"
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -207,11 +212,7 @@ class Schedule(Base):
         nullable=False,
         index=True,
     )
-    goal_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("goals.id", ondelete="SET NULL"),
-        nullable=True,
-    )
+    # goal_id removed — schedule is now portfolio-scoped (user-day) (Commit 3)
     weekly_plan_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("weekly_plans.id", ondelete="SET NULL"),
@@ -238,6 +239,20 @@ class Schedule(Base):
     )
     model_used: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     generation_prompt: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Stale flag — lazy invalidation for schedule regeneration
+    is_stale: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False,
+    )
+    # Regeneration lock — prevents concurrent solver runs
+    is_regenerating: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False,
+    )
+    # Timestamp for crash recovery — if is_regenerating=True and this is >60s ago,
+    # the lock is force-released on next fetch
+    regeneration_started_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None,
+    )
 
     deleted_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True, default=None
@@ -329,7 +344,7 @@ class Task(Base):
     task_status: Mapped[str] = mapped_column(
         String(20),
         CheckConstraint(
-            "task_status IN ('active', 'deferred', 'parked', 'completed')"
+            "task_status IN ('active', 'deferred', 'parked', 'completed', 'expired')"
         ),
         nullable=False,
         default="active",
@@ -337,6 +352,10 @@ class Task(Base):
     )
     previous_status: Mapped[Optional[str]] = mapped_column(
         String(20), nullable=True, default=None,
+    )
+    # Snapshot of the goal's rank when this task was scheduled (Commit 3)
+    goal_rank_snapshot: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True, default=None,
     )
     slot_reasons: Mapped[Optional[list]] = mapped_column(
         JSONB, nullable=True, default=None,

@@ -1,9 +1,12 @@
 """
-Goal Service — CRUD operations for user goals.
+Goal Service — Commit 3 (Multi-Goal Portfolio)
 
-Enforces the single-active-goal rule:
-- Only one goal can be 'active' at a time per user
-- Pausing an active goal allows creating/resuming another
+Multi-goal architecture:
+- Up to MAX_ACTIVE_GOALS concurrent active goals per user
+- Service-side rank compaction with row-level locks (no DB trigger)
+- Full-reorder approach: NULL all ranks → write new order (avoids unique index collision)
+- Resume assigns bottom rank; pre_pause_rank stored for frontend option
+- Schedule staleness marked on any rank/goal mutation
 """
 
 import uuid
@@ -14,14 +17,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func
 from fastapi import HTTPException, status
 
-from app.models.goal import Goal, Task
+from app.models.goal import Goal, Task, Schedule
 from app.schemas.goals import GoalUpdateRequest, GoalDetailResponse, GoalListResponse
+from app.core.constants import MAX_ACTIVE_GOALS
+from app.core.timezone import get_user_today
 
 logger = logging.getLogger(__name__)
 
 
+# ── Read ──────────────────────────────────────────────────────
+
+
 async def get_active_goal(user_id: uuid.UUID, db: AsyncSession) -> GoalDetailResponse:
-    """Get the current active goal for a user."""
+    """Get the highest-ranked active goal (backward compat for single-goal clients)."""
     result = await db.execute(
         select(Goal).where(
             and_(
@@ -29,7 +37,8 @@ async def get_active_goal(user_id: uuid.UUID, db: AsyncSession) -> GoalDetailRes
                 Goal.status == "active",
                 Goal.deleted_at.is_(None),
             )
-        )
+        ).order_by(Goal.priority_rank.asc())
+        .limit(1)
     )
     goal = result.scalar_one_or_none()
 
@@ -42,16 +51,36 @@ async def get_active_goal(user_id: uuid.UUID, db: AsyncSession) -> GoalDetailRes
     return await _build_goal_response(goal, db)
 
 
-async def list_all_goals(user_id: uuid.UUID, db: AsyncSession) -> GoalListResponse:
-    """List all goals (active + historical), ordered by created_at desc."""
+async def get_active_goals(user_id: uuid.UUID, db: AsyncSession) -> list[Goal]:
+    """Get all active goals ordered by rank. Used internally by schedule_service."""
     result = await db.execute(
-        select(Goal)
-        .where(
+        select(Goal).where(
             and_(
                 Goal.user_id == user_id,
+                Goal.status == "active",
                 Goal.deleted_at.is_(None),
             )
-        )
+        ).order_by(Goal.priority_rank.asc())
+    )
+    return list(result.scalars().all())
+
+
+async def list_all_goals(
+    user_id: uuid.UUID,
+    db: AsyncSession,
+    status_filter: str | None = None,
+) -> GoalListResponse:
+    """List all goals (active + historical), ordered by created_at desc."""
+    conditions = [
+        Goal.user_id == user_id,
+        Goal.deleted_at.is_(None),
+    ]
+    if status_filter:
+        conditions.append(Goal.status == status_filter)
+
+    result = await db.execute(
+        select(Goal)
+        .where(and_(*conditions))
         .order_by(Goal.created_at.desc())
     )
     goals = result.scalars().all()
@@ -69,6 +98,9 @@ async def list_all_goals(user_id: uuid.UUID, db: AsyncSession) -> GoalListRespon
         total=len(goal_responses),
         active_count=active_count,
     )
+
+
+# ── Update ────────────────────────────────────────────────────
 
 
 async def update_goal(
@@ -94,9 +126,17 @@ async def update_goal(
         setattr(goal, field, value)
 
     await db.flush()
+
+    # Mark today's schedule stale if the goal is active (title/metadata changed)
+    if goal.status == "active":
+        await _mark_today_schedule_stale(user_id, db)
+
     logger.info("goal_updated", extra={"goal_id": str(goal_id), "user_id": str(user_id)})
 
     return await _build_goal_response(goal, db)
+
+
+# ── Status Transitions ────────────────────────────────────────
 
 
 async def update_goal_status(
@@ -107,10 +147,8 @@ async def update_goal_status(
 ) -> GoalDetailResponse:
     """
     Handle all goal status transitions:
-    - active → paused
-    - active → achieved
-    - active → abandoned
-    - paused → active (enforce single-active-goal)
+    - active → paused, achieved, abandoned
+    - paused → active (multi-goal: assign bottom rank, enforce cap)
     """
     goal = await _get_user_goal(user_id, goal_id, db)
 
@@ -127,30 +165,56 @@ async def update_goal_status(
             detail=f"Cannot transition from '{current}' to '{new_status}'. Allowed: {allowed or 'none'}",
         )
 
-    # If resuming (paused → active), enforce single-active-goal
-    if new_status == "active":
-        result = await db.execute(
-            select(Goal).where(
-                and_(
-                    Goal.user_id == user_id,
-                    Goal.status == "active",
-                    Goal.deleted_at.is_(None),
-                )
-            )
-        )
-        existing_active = result.scalar_one_or_none()
-        if existing_active:
+    # ── active → paused: snapshot rank, null it, compact ──
+    if current == "active" and new_status == "paused":
+        goal.pre_pause_rank = goal.priority_rank
+        goal.priority_rank = None
+        goal.status = "paused"
+        await db.flush()
+        await _compact_ranks(user_id, db)
+        await _mark_today_schedule_stale(user_id, db)
+
+    # ── active → achieved: null rank, compact ──
+    elif current == "active" and new_status == "achieved":
+        goal.priority_rank = None
+        goal.status = "achieved"
+        await db.flush()
+        await _compact_ranks(user_id, db)
+        await _mark_today_schedule_stale(user_id, db)
+
+    # ── active → abandoned: null rank, soft-delete, compact ──
+    elif current == "active" and new_status == "abandoned":
+        goal.priority_rank = None
+        goal.status = "abandoned"
+        goal.deleted_at = datetime.now(timezone.utc)
+        await db.flush()
+        await _compact_ranks(user_id, db)
+        await _mark_today_schedule_stale(user_id, db)
+
+    # ── paused → active: assign bottom rank, enforce cap ──
+    elif current == "paused" and new_status == "active":
+        active_count = await _count_active_goals(user_id, db)
+        if active_count >= MAX_ACTIVE_GOALS:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="You already have an active goal. Pause or complete it first.",
+                detail=f"You already have {MAX_ACTIVE_GOALS} active goals. "
+                       f"Pause or complete one first.",
             )
+        bottom_rank = await _next_rank(user_id, db)
+        goal.priority_rank = bottom_rank
+        goal.status = "active"
+        await db.flush()
+        await _mark_today_schedule_stale(user_id, db)
 
-    # If abandoning, soft-delete
-    if new_status == "abandoned":
+    # ── paused → abandoned ──
+    elif current == "paused" and new_status == "abandoned":
+        goal.status = "abandoned"
         goal.deleted_at = datetime.now(timezone.utc)
+        await db.flush()
 
-    goal.status = new_status
-    await db.flush()
+    else:
+        goal.status = new_status
+        await db.flush()
 
     action_log = {
         "achieved": "goal_achieved",
@@ -176,7 +240,7 @@ async def pause_goal(
 async def resume_goal(
     user_id: uuid.UUID, goal_id: uuid.UUID, db: AsyncSession
 ) -> GoalDetailResponse:
-    """Resume a paused goal. Enforces single-active-goal rule."""
+    """Resume a paused goal. Assigns bottom rank, enforces cap."""
     return await update_goal_status(user_id, goal_id, "active", db)
 
 
@@ -185,6 +249,71 @@ async def delete_goal(
 ) -> GoalDetailResponse:
     """Soft-delete a goal."""
     return await update_goal_status(user_id, goal_id, "abandoned", db)
+
+
+# ── Reorder ───────────────────────────────────────────────────
+
+
+async def reorder_goals(
+    user_id: uuid.UUID,
+    goal_ids: list[uuid.UUID],
+    db: AsyncSession,
+) -> GoalListResponse:
+    """
+    Full reorder of active goals.
+    Strategy: lock all active goals → NULL all ranks → write new order.
+    This avoids unique index collisions entirely.
+    """
+    # Lock all active goals with FOR UPDATE
+    result = await db.execute(
+        select(Goal).where(
+            and_(
+                Goal.user_id == user_id,
+                Goal.status == "active",
+                Goal.deleted_at.is_(None),
+            )
+        ).with_for_update()
+    )
+    active_goals = result.scalars().all()
+    active_ids = {g.id for g in active_goals}
+
+    # Validate: goal_ids must match exactly the active goal IDs
+    requested_ids = set(goal_ids)
+    if requested_ids != active_ids:
+        missing = active_ids - requested_ids
+        extra = requested_ids - active_ids
+        detail_parts = []
+        if missing:
+            detail_parts.append(f"Missing active goals: {[str(m) for m in missing]}")
+        if extra:
+            detail_parts.append(f"Unknown/inactive goals: {[str(e) for e in extra]}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"goal_ids must contain exactly your active goals. {'. '.join(detail_parts)}",
+        )
+
+    # Step 1: Set temporary negative ranks (avoids both unique index collision
+    # AND ck_active_goal_has_rank CHECK which requires active goals to have non-NULL rank).
+    # Negative ranks are outside the valid 1..N range so they won't collide.
+    goal_map = {g.id: g for g in active_goals}
+    for i, goal in enumerate(active_goals):
+        goal.priority_rank = -(i + 1)  # -1, -2, -3
+    await db.flush()
+
+    # Step 2: Write new order (1-indexed)
+    for rank, gid in enumerate(goal_ids, start=1):
+        goal_map[gid].priority_rank = rank
+    await db.flush()
+
+    # Mark schedule stale
+    await _mark_today_schedule_stale(user_id, db)
+
+    logger.info("goals_reordered", extra={
+        "user_id": str(user_id),
+        "new_order": [str(g) for g in goal_ids],
+    })
+
+    return await list_all_goals(user_id, db, status_filter="active")
 
 
 # ── Private helpers ─────────────────────────────────────────────
@@ -212,6 +341,88 @@ async def _get_user_goal(
         )
 
     return goal
+
+
+async def _count_active_goals(user_id: uuid.UUID, db: AsyncSession) -> int:
+    """Count currently active goals for a user."""
+    result = await db.execute(
+        select(func.count(Goal.id)).where(
+            and_(
+                Goal.user_id == user_id,
+                Goal.status == "active",
+                Goal.deleted_at.is_(None),
+            )
+        )
+    )
+    return result.scalar() or 0
+
+
+async def _next_rank(user_id: uuid.UUID, db: AsyncSession) -> int:
+    """Get the next available rank (max + 1) for a user's active goals."""
+    result = await db.execute(
+        select(func.max(Goal.priority_rank)).where(
+            and_(
+                Goal.user_id == user_id,
+                Goal.status == "active",
+                Goal.deleted_at.is_(None),
+            )
+        )
+    )
+    max_rank = result.scalar()
+    return (max_rank or 0) + 1
+
+
+async def _compact_ranks(user_id: uuid.UUID, db: AsyncSession) -> None:
+    """
+    Service-side rank compaction with row-level locks.
+    Ensures active goals have contiguous ranks 1, 2, 3...
+    Called after any goal leaves the active set (pause/achieve/abandon).
+    """
+    result = await db.execute(
+        select(Goal)
+        .where(
+            and_(
+                Goal.user_id == user_id,
+                Goal.status == "active",
+                Goal.deleted_at.is_(None),
+            )
+        )
+        .with_for_update()
+        .order_by(Goal.priority_rank.asc().nullslast())
+    )
+    goals = result.scalars().all()
+
+    for i, goal in enumerate(goals, start=1):
+        goal.priority_rank = i
+
+    await db.flush()
+
+
+async def _mark_today_schedule_stale(
+    user_id: uuid.UUID, db: AsyncSession
+) -> None:
+    """Mark today's schedule as stale so it regenerates on next fetch."""
+    try:
+        from app.core.timezone import get_user_today
+        # We don't have user timezone here easily, use UTC date as fallback
+        # The schedule_service will handle timezone properly on fetch
+        today = date.today()
+        result = await db.execute(
+            select(Schedule).where(
+                and_(
+                    Schedule.user_id == user_id,
+                    Schedule.schedule_date == today,
+                    Schedule.deleted_at.is_(None),
+                )
+            )
+        )
+        schedule = result.scalar_one_or_none()
+        if schedule:
+            schedule.is_stale = True
+            await db.flush()
+    except Exception:
+        # Never fail the main operation for stale marking
+        logger.warning("stale_marking_failed", extra={"user_id": str(user_id)})
 
 
 async def _get_goal_progress(goal_id: uuid.UUID, db: AsyncSession) -> dict:
@@ -269,4 +480,6 @@ async def _build_goal_response(goal: Goal, db: AsyncSession) -> GoalDetailRespon
         tasks_completed=progress["tasks_completed"],
         tasks_total=progress["tasks_total"],
         days_remaining=days_remaining,
+        priority_rank=goal.priority_rank,
+        pre_pause_rank=goal.pre_pause_rank,
     )

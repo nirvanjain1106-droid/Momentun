@@ -1,19 +1,25 @@
 """
-Constraint Solver — Phase 2.1
+Constraint Solver — Phase 2.1 + Commit 3 (Multi-Goal)
 
 Fixes applied:
 - #1  Type safety: all time values normalised to "HH:MM" strings on entry
 - #2  Overnight fixed blocks (23:00 → 06:30) handled correctly
 - #5  3-tier priority: 1=Core(MVP), 2=Normal, 3=Bonus
 - #9  50% capacity reduction for exhausted days (replaces task filtering)
-      Tasks are never filtered by priority — capacity reduction naturally
-      forces the solver to drop lower-priority tasks first.
+
+Commit 3 additions:
+- GoalTaskGroup: groups tasks by goal with rank context
+- Two-pass allocator: Pass 1 = best-effort floor per goal (rank order),
+  Pass 2 = global rank expenditure of remaining capacity
+- ScheduledTask now carries goal_id and goal_rank_snapshot
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 from datetime import date
 import math
+
+from app.core.constants import FLOOR_TASKS_PER_GOAL, FLOOR_ENERGY_DEGRADE
 
 
 # ─────────────────────────────────────────────────────────────
@@ -73,6 +79,18 @@ class ScheduledTask:
     description: str = ""
     subject: Optional[str] = None
     slot_reasons: Optional[List[str]] = None
+    # Multi-goal context (Commit 3)
+    goal_id: Optional[str] = None
+    goal_rank_snapshot: Optional[int] = None
+
+
+@dataclass
+class GoalTaskGroup:
+    """Tasks belonging to a single goal, with rank context."""
+    goal_id: str              # UUID as string (solver is DB-agnostic)
+    goal_rank: int            # 1 = highest priority
+    goal_title: str
+    tasks: List[TaskRequirement] = field(default_factory=list)
 
 
 @dataclass
@@ -86,6 +104,8 @@ class SolverResult:
     unscheduled_tasks: List[TaskRequirement]
     day_capacity_hrs: float
     strategy_hint: str
+    # Multi-goal: goals whose floor couldn't be met (Commit 3)
+    unsatisfied_goals: List[str] = field(default_factory=list)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -137,11 +157,18 @@ class ConstraintSolver:
     def solve(
         self,
         target_date: date,
-        task_requirements: List[TaskRequirement],
+        task_requirements: Optional[List[TaskRequirement]] = None,
+        goal_task_groups: Optional[List[GoalTaskGroup]] = None,
         day_type: str = "standard",
         checkin_energy: Optional[str] = None,
         yesterday_rating: Optional[str] = None,
     ) -> SolverResult:
+        """
+        Main solver entry point.
+        Accepts either:
+          - task_requirements: flat list (single-goal backward compat)
+          - goal_task_groups: list of GoalTaskGroup (multi-goal, Commit 3)
+        """
         day_of_week = self._get_day_of_week(target_date)
 
         day_type = self._determine_day_type(
@@ -164,9 +191,18 @@ class ConstraintSolver:
             int(self.daily_commitment_hrs * 60 * capacity_multiplier)
         )
 
-        scheduled, unscheduled = self._fit_tasks(
-            task_requirements, free_windows, effective_capacity_mins
-        )
+        unsatisfied_goals: List[str] = []
+
+        if goal_task_groups:
+            # Multi-goal path: two-pass allocator
+            scheduled, unscheduled, unsatisfied_goals = self._fit_tasks_multi_goal(
+                goal_task_groups, free_windows, effective_capacity_mins
+            )
+        else:
+            # Single-goal backward compat
+            scheduled, unscheduled = self._fit_tasks(
+                task_requirements or [], free_windows, effective_capacity_mins
+            )
 
         strategy_hint = self._build_strategy_hint(
             day_type, day_of_week, checkin_energy,
@@ -183,6 +219,7 @@ class ConstraintSolver:
             unscheduled_tasks=unscheduled,
             day_capacity_hrs=effective_capacity_mins / 60,
             strategy_hint=strategy_hint,
+            unsatisfied_goals=unsatisfied_goals,
         )
 
     # ── Timeline ──────────────────────────────────────────────
@@ -368,6 +405,231 @@ class ConstraintSolver:
             t.sequence_order = i
 
         return scheduled, unscheduled
+
+    def _fit_tasks_multi_goal(
+        self,
+        goal_groups: List[GoalTaskGroup],
+        windows: List[FreeWindow],
+        effective_capacity_mins: int,
+    ) -> Tuple[List[ScheduledTask], List[TaskRequirement], List[str]]:
+        """
+        Two-pass allocator for multi-goal scheduling (Commit 3).
+
+        Pass 1 — Best-effort floor (in rank order):
+          For each goal (sorted by rank), place 1 Core task.
+          If no energy-compatible Core task exists and FLOOR_ENERGY_DEGRADE
+          is True, allow one controlled energy mismatch.
+          If capacity runs out, lower-ranked goals are dropped.
+
+        Pass 2 — Global rank expenditure:
+          Merge all remaining tasks, sort by goal_rank → priority → energy,
+          fit greedily into remaining capacity.
+        """
+        if not windows or not goal_groups:
+            all_tasks = [t for g in goal_groups for t in g.tasks]
+            return [], all_tasks, [g.goal_id for g in goal_groups]
+
+        energy_order = {"high": 0, "medium": 1, "low": 2}
+
+        sorted_windows = sorted(
+            windows,
+            key=lambda w: energy_order.get(w.energy_level, 1)
+        )
+
+        window_remaining    = {i: w.usable_mins for i, w in enumerate(sorted_windows)}
+        window_current_time = {i: w.start_time  for i, w in enumerate(sorted_windows)}
+
+        scheduled: List[ScheduledTask] = []
+        unsatisfied_goals: List[str]   = []
+        total_scheduled_mins           = 0
+        sequence                       = 0
+
+        # Track which tasks have been placed (by id in list)
+        placed_tasks: set = set()
+
+        # ── Pass 1: Best-effort floor per goal (rank order) ──
+        sorted_groups = sorted(goal_groups, key=lambda g: g.goal_rank)
+
+        for group in sorted_groups:
+            # Capacity gate: if we've already hit the limit, lower-ranked goals lose their floor
+            if total_scheduled_mins >= effective_capacity_mins:
+                unsatisfied_goals.append(group.goal_id)
+                continue
+
+            # Find Core tasks for this goal
+            core_tasks = [
+                t for t in group.tasks if t.priority == PRIORITY_CORE
+            ]
+            if not core_tasks:
+                # No Core task defined — try any task
+                core_tasks = list(group.tasks)
+            if not core_tasks:
+                unsatisfied_goals.append(group.goal_id)
+                continue
+
+            floor_placed = False
+            for floor_task in core_tasks:
+                if total_scheduled_mins + floor_task.duration_mins > effective_capacity_mins:
+                    continue
+
+                # Try energy-compatible placement first
+                result = self._try_place_task(
+                    floor_task, sorted_windows, window_remaining,
+                    window_current_time, energy_strict=True,
+                    goal_id=group.goal_id, goal_rank=group.goal_rank,
+                    sequence=sequence,
+                )
+                if result:
+                    scheduled.append(result)
+                    total_scheduled_mins += floor_task.duration_mins
+                    sequence += 1
+                    placed_tasks.add(id(floor_task))
+                    floor_placed = True
+                    break
+
+                # Energy fallback: allow one mismatch if policy permits
+                if FLOOR_ENERGY_DEGRADE:
+                    result = self._try_place_task(
+                        floor_task, sorted_windows, window_remaining,
+                        window_current_time, energy_strict=False,
+                        goal_id=group.goal_id, goal_rank=group.goal_rank,
+                        sequence=sequence,
+                    )
+                    if result:
+                        result.slot_reasons = (result.slot_reasons or []) + [
+                            "Energy mismatch allowed for goal floor guarantee"
+                        ]
+                        scheduled.append(result)
+                        total_scheduled_mins += floor_task.duration_mins
+                        sequence += 1
+                        placed_tasks.add(id(floor_task))
+                        floor_placed = True
+                        break
+
+            if not floor_placed:
+                unsatisfied_goals.append(group.goal_id)
+
+        # ── Pass 2: Global rank expenditure ──
+        remaining_tasks = []
+        for group in sorted_groups:
+            for task in group.tasks:
+                if id(task) not in placed_tasks:
+                    remaining_tasks.append((group.goal_rank, group.goal_id, task))
+
+        # Sort: goal_rank ASC → priority ASC → energy order
+        remaining_tasks.sort(
+            key=lambda x: (x[0], x[2].priority, energy_order.get(x[2].energy_required, 1))
+        )
+
+        unscheduled: List[TaskRequirement] = []
+
+        for goal_rank, goal_id, task in remaining_tasks:
+            if total_scheduled_mins + task.duration_mins > effective_capacity_mins:
+                unscheduled.append(task)
+                continue
+
+            result = self._try_place_task(
+                task, sorted_windows, window_remaining,
+                window_current_time, energy_strict=True,
+                goal_id=goal_id, goal_rank=goal_rank,
+                sequence=sequence,
+            )
+            if not result:
+                # Try without energy constraint in Pass 2
+                result = self._try_place_task(
+                    task, sorted_windows, window_remaining,
+                    window_current_time, energy_strict=False,
+                    goal_id=goal_id, goal_rank=goal_rank,
+                    sequence=sequence,
+                )
+            if result:
+                scheduled.append(result)
+                total_scheduled_mins += task.duration_mins
+                sequence += 1
+            else:
+                unscheduled.append(task)
+
+        # Final sort by time
+        scheduled.sort(key=lambda t: t.scheduled_start)
+        for i, t in enumerate(scheduled):
+            t.sequence_order = i
+
+        return scheduled, unscheduled, unsatisfied_goals
+
+    def _try_place_task(
+        self,
+        task: TaskRequirement,
+        sorted_windows: List[FreeWindow],
+        window_remaining: dict,
+        window_current_time: dict,
+        energy_strict: bool,
+        goal_id: Optional[str] = None,
+        goal_rank: Optional[int] = None,
+        sequence: int = 0,
+    ) -> Optional[ScheduledTask]:
+        """Try to place a single task into the best available window."""
+        for idx, window in enumerate(sorted_windows):
+            if energy_strict and not self._energy_compatible(
+                task.energy_required, window.energy_level
+            ):
+                continue
+            if window_remaining[idx] < task.duration_mins:
+                continue
+
+            start = window_current_time[idx]
+            end   = self._add_minutes(start, task.duration_mins)
+
+            if self._time_to_slot(end) > window.slot_end:
+                continue
+
+            # Build slot reasoning
+            reasons = []
+            priority_names = {1: "Core (must-do)", 2: "Normal", 3: "Bonus"}
+            reasons.append(
+                f"{priority_names.get(task.priority, 'Normal')} priority task"
+            )
+
+            if window.energy_level == "high" and task.energy_required == "high":
+                reasons.append(
+                    f"Placed during peak energy window ({window.start_time}–{window.end_time}) "
+                    "for maximum concentration"
+                )
+            elif window.energy_level == "medium":
+                reasons.append(
+                    f"Scheduled in moderate energy window ({window.start_time}–{window.end_time})"
+                )
+            elif window.energy_level == "low":
+                reasons.append(
+                    f"Light task fits the low-energy evening window ({window.start_time}–{window.end_time})"
+                )
+
+            if task.subject:
+                reasons.append(f"Subject: {task.subject}")
+
+            if task.priority == PRIORITY_CORE:
+                reasons.append("Scheduled first — Core tasks get priority placement")
+
+            result = ScheduledTask(
+                title=task.title,
+                task_type=task.task_type,
+                scheduled_start=start,
+                scheduled_end=end,
+                duration_mins=task.duration_mins,
+                energy_required=task.energy_required,
+                priority=task.priority,
+                is_mvp_task=(task.priority == PRIORITY_CORE),
+                sequence_order=sequence,
+                subject=task.subject,
+                slot_reasons=reasons,
+                goal_id=goal_id,
+                goal_rank_snapshot=goal_rank,
+            )
+
+            window_remaining[idx]    -= (task.duration_mins + self.TRANSITION_MINS)
+            window_current_time[idx]  = self._add_minutes(end, self.TRANSITION_MINS)
+            return result
+
+        return None
 
     # ── Day type ──────────────────────────────────────────────
 

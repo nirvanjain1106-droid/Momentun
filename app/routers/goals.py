@@ -1,6 +1,7 @@
 import uuid
+from typing import Optional
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Query
 from app.config import settings
 from app.core.rate_limit import limiter
 from app.core.dependencies import CurrentUserComplete, DB
@@ -8,6 +9,7 @@ from app.schemas.goals import (
     GoalUpdateRequest,
     GoalDetailResponse,
     GoalStatusUpdateRequest,
+    GoalReorderRequest,
     GoalListResponse,
 )
 from app.services import goal_service
@@ -21,20 +23,26 @@ router = APIRouter(prefix="/goals", tags=["Goals"])
     summary="List all goals",
     description=(
         "Returns all goals (active, paused, achieved) ordered by most recent. "
-        "Includes progress percentage for each goal."
+        "Includes progress percentage for each goal. "
+        "Use ?status=active to filter by status."
     ),
 )
 async def list_goals(
-    current_user: CurrentUserComplete, db: DB
+    current_user: CurrentUserComplete,
+    db: DB,
+    status: Optional[str] = Query(None, description="Filter by status: active, paused, achieved, abandoned"),
 ) -> GoalListResponse:
-    return await goal_service.list_all_goals(current_user.id, db)
+    return await goal_service.list_all_goals(current_user.id, db, status_filter=status)
 
 
 @router.get(
     "/active",
     response_model=GoalDetailResponse,
-    summary="Get current active goal",
-    description="Returns the user's currently active goal with progress info.",
+    summary="Get highest-ranked active goal",
+    description=(
+        "Returns the user's highest-ranked active goal with progress info. "
+        "For all active goals, use GET /goals?status=active."
+    ),
 )
 async def get_active_goal(
     current_user: CurrentUserComplete, db: DB
@@ -69,7 +77,7 @@ async def update_goal(
     description=(
         "Transition a goal's status. Valid transitions:\n"
         "- active → paused, achieved, abandoned\n"
-        "- paused → active (enforces single-active-goal), abandoned\n"
+        "- paused → active (assigns bottom rank, enforces 3-goal cap), abandoned\n"
         "Use this to celebrate achievements or pause during breaks."
     ),
 )
@@ -86,7 +94,7 @@ async def update_goal_status(
     "/{goal_id}/pause",
     response_model=GoalDetailResponse,
     summary="Pause an active goal",
-    description="Pause the active goal. This allows creating or resuming another goal.",
+    description="Pause the active goal. Snapshots rank to pre_pause_rank.",
 )
 async def pause_goal(
     goal_id: uuid.UUID,
@@ -102,7 +110,7 @@ async def pause_goal(
     summary="Resume a paused goal",
     description=(
         "Resume a previously paused goal. "
-        "Fails if another active goal already exists."
+        "Assigns bottom rank. Fails if 3 active goals already exist."
     ),
 )
 async def resume_goal(
@@ -111,6 +119,26 @@ async def resume_goal(
     db: DB,
 ) -> GoalDetailResponse:
     return await goal_service.resume_goal(current_user.id, goal_id, db)
+
+
+@router.put(
+    "/reorder",
+    response_model=GoalListResponse,
+    summary="Reorder active goals",
+    description=(
+        "Reorder active goals by providing the desired order of goal IDs. "
+        "Must include exactly all active goal IDs. "
+        "Marks today's schedule as stale for regeneration."
+    ),
+)
+@limiter.limit(settings.RATE_LIMIT_DEFAULT)
+async def reorder_goals(
+    request: Request,
+    data: GoalReorderRequest,
+    current_user: CurrentUserComplete,
+    db: DB,
+) -> GoalListResponse:
+    return await goal_service.reorder_goals(current_user.id, data.goal_ids, db)
 
 
 @router.delete(

@@ -94,6 +94,9 @@ class TaskDetailResponse(BaseModel):
     task_status: str
     previous_status: Optional[str] = None
     slot_reasons: Optional[List[str]] = None
+    # Multi-goal context (Commit 3)
+    goal_id: Optional[uuid.UUID] = None
+    goal_rank_snapshot: Optional[int] = None
 
     model_config = {"from_attributes": True}
 

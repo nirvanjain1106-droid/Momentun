@@ -410,6 +410,8 @@ def _build_task_response(task: Task) -> TaskDetailResponse:
         sequence_order=task.sequence_order,
         task_status=task.task_status,
         previous_status=task.previous_status,
+        goal_id=task.goal_id,
+        goal_rank_snapshot=task.goal_rank_snapshot,
     )
 
 
