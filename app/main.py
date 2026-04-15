@@ -54,7 +54,7 @@ app.add_middleware(
     allow_origin_regex=settings.ALLOWED_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
+    allow_headers=["Content-Type", "Authorization", "X-Request-ID"],
 )
 
 # ── Prometheus Metrics (auto-instrumentation) ────────────────

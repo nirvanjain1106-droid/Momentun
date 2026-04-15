@@ -39,7 +39,7 @@ async def register(request: Request, response: Response, data: RegisterRequest, 
         httponly=True,
         secure=True,
         samesite="none",
-        path="/api/v1/auth/refresh",
+        path="/api/v1/auth",
         max_age=604800,
     )
     return auth_response
@@ -59,7 +59,7 @@ async def login(request: Request, response: Response, data: LoginRequest, db: DB
         httponly=True,
         secure=True,
         samesite="none",
-        path="/api/v1/auth/refresh",
+        path="/api/v1/auth",
         max_age=604800,
     )
     return auth_response
@@ -154,7 +154,7 @@ async def logout(current_user: CurrentUser, response: Response) -> LogoutRespons
         httponly=True,
         secure=True,
         samesite="none",
-        path="/api/v1/auth/refresh",
+        path="/api/v1/auth",
         max_age=0,
     )
     return LogoutResponse(message=result.message)

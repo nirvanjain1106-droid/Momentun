@@ -1,4 +1,6 @@
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios';
+import { useAuthStore } from '../stores/authStore';
+import { useUIStore } from '../stores/uiStore';
 
 export const client = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1',
@@ -44,12 +46,27 @@ client.interceptors.request.use((config) => {
 });
 
 client.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    if (useUIStore.getState().isOffline) {
+      useUIStore.getState().setOffline(false);
+    }
+    return response;
+  },
   async (error: AxiosError) => {
-    const originalRequest = error.config as InternalAxiosRequestConfig;
+    const originalRequest = error.config as InternalAxiosRequestConfig | undefined;
     
+    // Detect offline state
+    if (!error.response && !useUIStore.getState().isOffline) {
+      useUIStore.getState().setOffline(true);
+    }
+
     // Ignore network errors or manually canceled requests directly here
     if (!originalRequest) return Promise.reject(error);
+
+    // Prevent deadlock: auth endpoints must not queue for refresh
+    if (originalRequest.url === '/auth/refresh' || originalRequest.url === '/auth/logout') {
+      return Promise.reject(error);
+    }
 
     if (error.response?.status === 401 && !originalRequest._retry) {
       if (isRefreshing) {
@@ -78,16 +95,7 @@ client.interceptors.response.use(
       } catch (refreshError) {
         processQueue(refreshError as AxiosError);
         
-        // Final fallback block: trigger logout flow
-        // The store handles the actual UI redirect or state clear if we throw,
-        // but as per plan, we hard-redirect to /login on dead refresh.
-        // Wait, the plan says:
-        // "Calls POST /auth/logout before hard redirect to clear httpOnly cookie"
-        try {
-          await client.post('/auth/logout');
-        } catch (e) {
-          // ignore logout errors if any
-        }
+        try { await useAuthStore.getState().logout(); } catch { /* best-effort logout API clearing */ }
         window.location.href = '/login';
         return Promise.reject(refreshError);
       } finally {

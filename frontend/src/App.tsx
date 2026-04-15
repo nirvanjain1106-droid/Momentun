@@ -1,9 +1,10 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthGate } from './components/layout/AuthGate';
 import { AppShell } from './components/layout/AppShell';
 import { ChunkLoadError } from './components/ui/ChunkLoadError';
 import { PageSkeleton } from './components/ui/PageSkeleton';
+import { useUIStore } from './stores/uiStore';
 
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
@@ -21,6 +22,21 @@ const DashboardPage = lazyWithFallback(() => import('./pages/DashboardPage'));
 // We will add more lazy pages as we build them
 
 function App() {
+  const { setOffline } = useUIStore();
+
+  useEffect(() => {
+    const handleOnline = () => setOffline(false);
+    const handleOffline = () => setOffline(true);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [setOffline]);
+
   return (
     <BrowserRouter>
       <AuthGate>
