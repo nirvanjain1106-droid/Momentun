@@ -20,7 +20,6 @@ from fastapi import HTTPException, status
 from app.models.goal import Goal, Task, Schedule
 from app.schemas.goals import GoalUpdateRequest, GoalDetailResponse, GoalListResponse
 from app.core.constants import MAX_ACTIVE_GOALS
-from app.core.timezone import get_user_today
 
 logger = logging.getLogger(__name__)
 
@@ -403,7 +402,6 @@ async def _mark_today_schedule_stale(
 ) -> None:
     """Mark today's schedule as stale so it regenerates on next fetch."""
     try:
-        from app.core.timezone import get_user_today
         # We don't have user timezone here easily, use UTC date as fallback
         # The schedule_service will handle timezone properly on fetch
         today = date.today()

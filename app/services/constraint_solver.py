@@ -19,7 +19,7 @@ from typing import List, Optional, Tuple
 from datetime import date
 import math
 
-from app.core.constants import FLOOR_TASKS_PER_GOAL, FLOOR_ENERGY_DEGRADE
+from app.core.constants import FLOOR_ENERGY_DEGRADE
 
 
 # ─────────────────────────────────────────────────────────────

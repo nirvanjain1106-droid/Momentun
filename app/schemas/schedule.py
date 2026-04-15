@@ -2,7 +2,6 @@ import uuid
 from typing import Optional, List
 from pydantic import BaseModel, field_validator
 import re
-from datetime import date as date_type
 
 
 
