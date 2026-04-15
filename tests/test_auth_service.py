@@ -43,12 +43,12 @@ async def test_register_user_success():
         user_type="student",
     )
 
-    result = await auth_service.register_user(data, db)
+    token_response, refresh_token = await auth_service.register_user(data, db)
 
-    assert result.user_id is not None
-    assert result.onboarding_step == 1
-    assert result.access_token
-    assert result.refresh_token
+    assert token_response.user_id is not None
+    assert token_response.onboarding_step == 1
+    assert token_response.access_token
+    assert refresh_token
 
 
 @pytest.mark.asyncio

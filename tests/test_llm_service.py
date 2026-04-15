@@ -174,12 +174,7 @@ def test_fallback_different_day_types():
 async def test_openrouter_503_returns_none():
     """When OpenRouter returns 503, _call_openrouter should return (None, usage)."""
     with patch("app.services.llm_service.httpx.AsyncClient") as mock_client:
-        mock_response = AsyncMock()
-        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
-            "503 Service Unavailable",
-            request=httpx.Request("POST", "https://openrouter.ai"),
-            response=httpx.Response(503),
-        )
+        mock_response = httpx.Response(503, request=httpx.Request("POST", "https://openrouter.ai"))
         mock_client.return_value.__aenter__.return_value.post = AsyncMock(return_value=mock_response)
 
         result, usage = await _call_openrouter("test prompt", "fake_key", "fake_model")
@@ -190,12 +185,7 @@ async def test_openrouter_503_returns_none():
 async def test_groq_503_returns_none():
     """When Groq returns 503, _call_groq should return (None, usage)."""
     with patch("app.services.llm_service.httpx.AsyncClient") as mock_client:
-        mock_response = AsyncMock()
-        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
-            "503 Service Unavailable",
-            request=httpx.Request("POST", "https://api.groq.com"),
-            response=httpx.Response(503),
-        )
+        mock_response = httpx.Response(503, request=httpx.Request("POST", "https://api.groq.com"))
         mock_client.return_value.__aenter__.return_value.post = AsyncMock(return_value=mock_response)
 
         result, usage = await _call_groq("test prompt", "fake_key")

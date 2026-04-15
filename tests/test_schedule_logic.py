@@ -21,12 +21,9 @@ from app.services import schedule_service as schedule_mod
 # ── Time mocking helper ─────────────────────────────────────
 
 
-def _make_frozen_datetime(year, month, day, hour, minute, tz_name="Asia/Kolkata"):
+def _make_frozen_datetime(year, month, day, hour, minute, tz_name="UTC"):
     """Create a datetime subclass that freezes now() to a specific time."""
-    try:
-        from zoneinfo import ZoneInfo
-    except ImportError:
-        from backports.zoneinfo import ZoneInfo
+    from zoneinfo import ZoneInfo
 
     from datetime import datetime as real_dt
 
@@ -64,7 +61,7 @@ async def test_horizon_line_not_expired_before_end():
     original_dt = schedule_mod.datetime
     schedule_mod.datetime = FrozenDT
     try:
-        await schedule_mod._apply_horizon_line(uuid.uuid4(), schedule, "Asia/Kolkata", db)
+        await schedule_mod._apply_horizon_line(uuid.uuid4(), schedule, "UTC", db)
     finally:
         schedule_mod.datetime = original_dt
 
@@ -93,7 +90,7 @@ async def test_horizon_line_not_expired_during_grace():
     original_dt = schedule_mod.datetime
     schedule_mod.datetime = FrozenDT
     try:
-        await schedule_mod._apply_horizon_line(uuid.uuid4(), schedule, "Asia/Kolkata", db)
+        await schedule_mod._apply_horizon_line(uuid.uuid4(), schedule, "UTC", db)
     finally:
         schedule_mod.datetime = original_dt
 
@@ -122,7 +119,7 @@ async def test_horizon_line_expires_after_grace():
     original_dt = schedule_mod.datetime
     schedule_mod.datetime = FrozenDT
     try:
-        await schedule_mod._apply_horizon_line(uuid.uuid4(), schedule, "Asia/Kolkata", db)
+        await schedule_mod._apply_horizon_line(uuid.uuid4(), schedule, "UTC", db)
     finally:
         schedule_mod.datetime = original_dt
 
@@ -240,7 +237,7 @@ async def test_horizon_line_malformed_time():
     original_dt = schedule_mod.datetime
     schedule_mod.datetime = FrozenDT
     try:
-        await schedule_mod._apply_horizon_line(uuid.uuid4(), schedule, "Asia/Kolkata", db)
+        await schedule_mod._apply_horizon_line(uuid.uuid4(), schedule, "UTC", db)
     finally:
         schedule_mod.datetime = original_dt
 
@@ -273,7 +270,7 @@ async def test_horizon_line_skips_non_today():
     original_dt = schedule_mod.datetime
     schedule_mod.datetime = FrozenDT
     try:
-        await schedule_mod._apply_horizon_line(uuid.uuid4(), schedule, "Asia/Kolkata", db)
+        await schedule_mod._apply_horizon_line(uuid.uuid4(), schedule, "UTC", db)
     finally:
         schedule_mod.datetime = original_dt
 
