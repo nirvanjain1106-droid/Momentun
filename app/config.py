@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     RATE_LIMIT_LLM: str = "3/hour"  # Strict limit for LLM-triggering endpoints
 
     # CORS
-    ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:8080"
+    ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:5173,http://localhost:8080"
 
     # Email / SMTP
     SMTP_HOST: str = ""
