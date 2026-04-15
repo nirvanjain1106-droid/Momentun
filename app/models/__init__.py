@@ -15,6 +15,8 @@ from app.models.goal import (
     DailyLog,
     TaskLog,
     DetectedPattern,
+    LLMUsageLog,
+    Feedback,
 )
 
 __all__ = [
@@ -32,4 +34,6 @@ __all__ = [
     "DailyLog",
     "TaskLog",
     "DetectedPattern",
+    "LLMUsageLog",
+    "Feedback",
 ]

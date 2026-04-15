@@ -338,6 +338,9 @@ class Task(Base):
     previous_status: Mapped[Optional[str]] = mapped_column(
         String(20), nullable=True, default=None,
     )
+    slot_reasons: Mapped[Optional[list]] = mapped_column(
+        JSONB, nullable=True, default=None,
+    )
 
     deleted_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True, default=None
@@ -538,3 +541,58 @@ class DetectedPattern(Base):
 
     # Relationships
     goal: Mapped[Optional["Goal"]] = relationship(back_populates="detected_patterns")
+
+
+class LLMUsageLog(Base):
+    """Track LLM API usage for cost monitoring."""
+    __tablename__ = "llm_usage_logs"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    endpoint: Mapped[str] = mapped_column(String(100), nullable=False)
+    model_used: Mapped[str] = mapped_column(String(100), nullable=False)
+    provider: Mapped[str] = mapped_column(String(30), nullable=False)  # openrouter/groq/ollama
+    prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    success: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class Feedback(Base):
+    """User feedback and bug reports."""
+    __tablename__ = "feedback"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    feedback_type: Mapped[str] = mapped_column(
+        String(20),
+        CheckConstraint("feedback_type IN ('bug', 'feature', 'general', 'schedule_quality')"),
+        nullable=False,
+        default="general",
+    )
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    screen_state: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    device_info: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    request_ids: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

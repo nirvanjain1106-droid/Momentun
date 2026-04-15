@@ -15,13 +15,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.goal import DailyLog, DetectedPattern, Goal, Task, TaskLog
 from app.models.user import User, UserBehaviouralProfile
 from app.schemas.insights import (
+    HeatmapEntry,
+    HeatmapResponse,
     PatternResponse,
     PatternsResponse,
+    StreakResponse,
     SubjectTrajectoryResponse,
     TrajectoryResponse,
     WeeklyDayInsightResponse,
     WeeklyInsightsResponse,
 )
+from app.core.constants import PATTERN_MIN_SAMPLES
 
 PATTERN_LOOKBACK_DAYS = 42
 DAY_NAMES = [
@@ -224,6 +228,10 @@ async def detect_patterns(
     overload_pattern = _detect_overload_triggers(daily_logs)
     if overload_pattern:
         patterns.append(overload_pattern)
+
+    golden_hour = _detect_golden_hour(task_records)
+    if golden_hour:
+        patterns.append(golden_hour)
 
     patterns.sort(key=lambda item: (_severity_rank(item.severity), item.pattern_type))
 
@@ -600,7 +608,7 @@ def _detect_day_of_week_avoidance(
 
     candidate = None
     for weekday, data in stats.items():
-        if data["total"] < 4:
+        if data["total"] < PATTERN_MIN_SAMPLES["day_of_week_avoidance"]:
             continue
         failure_rate = data["failed"] / data["total"]
         if failure_rate >= 0.65:
@@ -643,7 +651,7 @@ def _detect_time_of_day_decay(
             record for record in task_records
             if _time_to_minutes(record.scheduled_start) >= bucket["threshold"]
         ]
-        if len(matching) < 3:
+        if len(matching) < PATTERN_MIN_SAMPLES["time_of_day_decay"]:
             continue
         failure_rate = sum(1 for record in matching if record.status not in SUCCESS_STATUSES) / len(matching)
         if failure_rate >= 0.7:
@@ -675,7 +683,7 @@ def _detect_streak_vulnerability(
     daily_logs: list[DailyLog],
 ) -> Optional[PatternResponse]:
     ordered = sorted(daily_logs, key=lambda item: item.log_date)
-    if len(ordered) < 6:
+    if len(ordered) < PATTERN_MIN_SAMPLES["streak_vulnerability"]:
         return None
 
     break_lengths: list[int] = []
@@ -729,7 +737,7 @@ def _detect_post_bad_day_collapse(
     daily_logs: list[DailyLog],
 ) -> Optional[PatternResponse]:
     ordered = sorted(daily_logs, key=lambda item: item.log_date)
-    if len(ordered) < 7:
+    if len(ordered) < PATTERN_MIN_SAMPLES["post_bad_day_collapse"]:
         return None
 
     log_map = {log.log_date: log for log in ordered}
@@ -790,7 +798,7 @@ def _detect_subject_avoidance(
 
     candidate = None
     for label, data in labels.items():
-        if data["total"] < 3:
+        if data["total"] < PATTERN_MIN_SAMPLES["subject_avoidance"]:
             continue
         failure_rate = data["failed"] / data["total"]
         if failure_rate >= 0.7:
@@ -830,7 +838,7 @@ def _detect_overload_triggers(
         if (log.tasks_scheduled or 0) <= 4 and log.tasks_scheduled is not None and log.completion_rate is not None
     ]
 
-    if len(overloaded) < 2 or not balanced:
+    if len(overloaded) < PATTERN_MIN_SAMPLES["overload_triggers"] or not balanced:
         return None
 
     overloaded_rate = sum(log.completion_rate or 0.0 for log in overloaded) / len(overloaded)
@@ -1088,3 +1096,158 @@ def _time_to_minutes(value: str) -> int:
         return int(parts[0]) * 60 + int(parts[1])
     except (IndexError, ValueError):
         return 0
+
+
+def _detect_golden_hour(
+    task_records: list[TaskPerformanceRecord],
+) -> Optional[PatternResponse]:
+    """
+    Find the user's most productive 2-hour window.
+    A window needs >90% completion rate with 5+ samples to qualify.
+    """
+    if len(task_records) < 10:
+        return None
+
+    # Group by 2-hour windows (0-2, 2-4, ..., 22-24)
+    windows: dict[int, dict[str, int]] = {}
+    for record in task_records:
+        mins = _time_to_minutes(record.scheduled_start)
+        window_start = (mins // 120) * 2  # 2-hour window start in hours
+        bucket = windows.setdefault(window_start, {"total": 0, "completed": 0})
+        bucket["total"] += 1
+        if record.status in SUCCESS_STATUSES:
+            bucket["completed"] += 1
+
+    best = None
+    for window_start, data in windows.items():
+        if data["total"] < 5:
+            continue
+        rate = data["completed"] / data["total"]
+        if rate >= 0.90:
+            if best is None or rate > best["rate"]:
+                best = {
+                    "window_start": window_start,
+                    "rate": rate,
+                    "samples": data["total"],
+                }
+
+    if not best:
+        return None
+
+    start_h = best["window_start"]
+    end_h = start_h + 2
+    label = f"{start_h:02d}:00–{end_h:02d}:00"
+    pct = int(round(best["rate"] * 100))
+
+    return PatternResponse(
+        pattern_type="golden_hour",
+        severity="low",  # positive pattern, not a vulnerability
+        insight=f"Your completion rate is {pct}% during {label} — this is your golden hour.",
+        fix=f"Protect {label} for your highest-priority Core tasks. Never schedule admin work here.",
+        supporting_data={
+            "window_start": f"{start_h:02d}:00",
+            "window_end": f"{end_h:02d}:00",
+            "completion_rate": round(best["rate"], 3),
+            "samples": best["samples"],
+        },
+    )
+
+
+# ── Streak & Heatmap ─────────────────────────────────────────────
+
+
+async def get_streak(
+    user: "User",
+    db: AsyncSession,
+) -> StreakResponse:
+    """Calculate current and best streak."""
+    today = get_user_today(getattr(user, "timezone", "Asia/Kolkata"))
+    logs = await _load_daily_logs(user.id, db, today - timedelta(days=365), today)
+    ordered = sorted(logs, key=lambda log_entry: log_entry.log_date)
+
+    # Current streak (counting back from today)
+    current = 0
+    expected = today
+    for log in reversed(ordered):
+        if log.log_date != expected:
+            break
+        if (log.completion_rate or 0.0) >= 0.6:
+            current += 1
+            expected -= timedelta(days=1)
+        else:
+            break
+
+    # Best streak ever
+    best = 0
+    streak = 0
+    prev_date = None
+    for log in ordered:
+        if prev_date and (log.log_date - prev_date).days != 1:
+            streak = 0
+        if (log.completion_rate or 0.0) >= 0.6:
+            streak += 1
+            best = max(best, streak)
+        else:
+            streak = 0
+        prev_date = log.log_date
+
+    last_active = ordered[-1].log_date.isoformat() if ordered else None
+
+    return StreakResponse(
+        current_streak=current,
+        best_streak=best,
+        streak_protected=False,  # freeze system not yet implemented
+        last_active_date=last_active,
+    )
+
+
+async def get_heatmap(
+    user: "User",
+    db: AsyncSession,
+    days: int = 90,
+) -> HeatmapResponse:
+    """Generate GitHub-style heatmap data."""
+    today = get_user_today(getattr(user, "timezone", "Asia/Kolkata"))
+    start = today - timedelta(days=days - 1)
+    logs = await _load_daily_logs(user.id, db, start, today)
+    log_map = {log_entry.log_date: log_entry for log_entry in logs}
+
+    entries = []
+    active_days = 0
+    total_rate = 0.0
+
+    for offset in range(days):
+        d = start + timedelta(days=offset)
+        log = log_map.get(d)
+
+        scheduled = log.tasks_scheduled or 0 if log else 0
+        completed = log.tasks_completed or 0 if log else 0
+        rate = log.completion_rate if log and log.completion_rate is not None else None
+
+        if rate is not None:
+            active_days += 1
+            total_rate += rate
+
+        if rate is None or scheduled == 0:
+            intensity = "none"
+        elif rate >= 0.8:
+            intensity = "high"
+        elif rate >= 0.5:
+            intensity = "medium"
+        else:
+            intensity = "low"
+
+        entries.append(HeatmapEntry(
+            date=d.isoformat(),
+            completion_rate=round(rate, 3) if rate is not None else None,
+            intensity=intensity,
+            tasks_completed=completed,
+            tasks_scheduled=scheduled,
+        ))
+
+    return HeatmapResponse(
+        entries=entries,
+        total_days=days,
+        active_days=active_days,
+        average_completion_rate=round(total_rate / active_days, 3) if active_days else None,
+    )

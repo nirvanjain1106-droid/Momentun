@@ -21,9 +21,9 @@ from app.schemas.tasks import (
     BulkDeleteResponse,
 )
 
-logger = logging.getLogger(__name__)
+from app.core.constants import PRIORITY_LABELS
 
-PRIORITY_LABELS = {1: "Core", 2: "Normal", 3: "Bonus"}
+logger = logging.getLogger(__name__)
 
 
 # ── Complete ──────────────────────────────────────────────────
@@ -331,18 +331,24 @@ async def bulk_delete_tasks(
 
 
 async def _get_user_task(
-    user_id: uuid.UUID, task_id: uuid.UUID, db: AsyncSession
+    user_id: uuid.UUID, task_id: uuid.UUID, db: AsyncSession,
+    for_update: bool = True,
 ) -> Task:
-    """Fetch a task owned by the user or raise 404."""
-    result = await db.execute(
-        select(Task).where(
-            and_(
-                Task.id == task_id,
-                Task.user_id == user_id,
-                Task.deleted_at.is_(None),
-            )
+    """
+    Fetch a task owned by the user or raise 404.
+    Uses SELECT FOR UPDATE by default to prevent race conditions (#7).
+    """
+    stmt = select(Task).where(
+        and_(
+            Task.id == task_id,
+            Task.user_id == user_id,
+            Task.deleted_at.is_(None),
         )
     )
+    if for_update:
+        stmt = stmt.with_for_update()
+
+    result = await db.execute(stmt)
     task = result.scalar_one_or_none()
 
     if not task:
@@ -405,3 +411,54 @@ def _build_task_response(task: Task) -> TaskDetailResponse:
         task_status=task.task_status,
         previous_status=task.previous_status,
     )
+
+
+# ── Quick Add ─────────────────────────────────────────────────
+
+
+async def quick_add_task(
+    user_id: uuid.UUID,
+    title: str,
+    duration_mins: int,
+    goal_id: Optional[uuid.UUID],
+    db: AsyncSession,
+) -> TaskDetailResponse:
+    """
+    Quick-capture: create a task with minimal info, straight to parking lot.
+    Zero friction — just title + duration. goal_id optional.
+    """
+    if not title or not title.strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Title is required",
+        )
+
+    if duration_mins < 5 or duration_mins > 480:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Duration must be between 5 and 480 minutes",
+        )
+
+    task = Task(
+        user_id=user_id,
+        goal_id=goal_id,
+        schedule_id=None,
+        title=title.strip(),
+        description=None,
+        task_type="general",
+        scheduled_start=None,
+        scheduled_end=None,
+        duration_mins=duration_mins,
+        energy_required="medium",
+        priority=2,  # PRIORITY_NORMAL
+        is_mvp_task=False,
+        sequence_order=999,
+        task_status="parked",
+    )
+    db.add(task)
+    await db.flush()
+
+    logger.info("task_quick_added", extra={
+        "task_id": str(task.id), "user_id": str(user_id), "title": title,
+    })
+    return _build_task_response(task)

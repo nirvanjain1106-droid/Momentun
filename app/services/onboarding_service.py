@@ -108,18 +108,21 @@ async def save_health_profile(
     """
     Create or update health profile (optional step).
     Does not advance onboarding step — health is collected progressively.
+    Free-text notes are encrypted at the application layer.
     """
+    from app.core.encryption import encrypt_field, decrypt_field
+
     # Fix #11 — native PostgreSQL upsert (race-safe)
     values = dict(
         user_id=user.id,
         has_physical_limitation=data.has_physical_limitation,
-        physical_limitation_note=data.physical_limitation_note,
+        physical_limitation_note=encrypt_field(data.physical_limitation_note),
         sleep_quality=data.sleep_quality,
         average_sleep_hrs=data.average_sleep_hrs,
         has_afternoon_crash=data.has_afternoon_crash,
         has_chronic_fatigue=data.has_chronic_fatigue,
         has_focus_difficulty=data.has_focus_difficulty,
-        focus_note=data.focus_note,
+        focus_note=encrypt_field(data.focus_note),
         current_fitness_level=data.current_fitness_level,
         diet_type=data.diet_type,
     )
@@ -135,7 +138,12 @@ async def save_health_profile(
     profile = result.scalar_one()
 
     await db.flush()
-    return HealthProfileResponse.model_validate(profile)
+
+    # Build response with decrypted notes
+    resp = HealthProfileResponse.model_validate(profile)
+    resp.physical_limitation_note = decrypt_field(profile.physical_limitation_note)
+    resp.focus_note = decrypt_field(profile.focus_note)
+    return resp
 
 
 async def save_behavioural_profile(

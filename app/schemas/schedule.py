@@ -79,6 +79,8 @@ class ScheduleResponse(BaseModel):
     total_tasks: int
     total_study_mins: int
     day_capacity_hrs: float
+    recovery_mode: bool = False      # True when returning after missed days
+    is_paused: bool = False          # True when user is in sick/vacation mode
 
     model_config = {"from_attributes": True}
 

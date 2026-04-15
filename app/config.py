@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     RATE_LIMIT_DEFAULT: str = "120/minute"
     RATE_LIMIT_AUTH: str = "10/minute"
     RATE_LIMIT_SCHEDULE: str = "10/minute"
+    RATE_LIMIT_LLM: str = "3/hour"  # Strict limit for LLM-triggering endpoints
 
     # CORS
     ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:8080"

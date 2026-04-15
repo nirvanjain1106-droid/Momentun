@@ -57,6 +57,16 @@ class User(Base):
     timezone: Mapped[str] = mapped_column(
         String(50), nullable=False, default="Asia/Kolkata", server_default="Asia/Kolkata"
     )
+    # Sick mode / vacation freeze
+    paused_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
+    paused_until: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
+    paused_reason: Mapped[Optional[str]] = mapped_column(
+        String(30), nullable=True, default=None
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

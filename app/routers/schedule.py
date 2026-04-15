@@ -24,7 +24,7 @@ router = APIRouter(prefix="/schedule", tags=["Schedule"])
         "Set use_llm=false for faster generation without AI descriptions."
     ),
 )
-@limiter.limit(settings.RATE_LIMIT_SCHEDULE)
+@limiter.limit(settings.RATE_LIMIT_LLM)
 async def generate_schedule(
     request: Request,
     data: GenerateScheduleRequest,
@@ -83,7 +83,7 @@ async def get_week(
         "Replaces the current schedule with a fresh one."
     ),
 )
-@limiter.limit(settings.RATE_LIMIT_SCHEDULE)
+@limiter.limit(settings.RATE_LIMIT_LLM)
 async def regenerate_schedule(
     request: Request,
     current_user: CurrentUserComplete,

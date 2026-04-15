@@ -10,7 +10,7 @@ Fixes applied:
 
 import asyncio
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional, List
 import uuid
 
@@ -21,9 +21,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from sqlalchemy.exc import IntegrityError
 
-from app.models.user import User, UserBehaviouralProfile
+from app.models.user import User, UserBehaviouralProfile, UserHealthProfile
 from app.models.goal import (
-    Goal, FixedBlock, Schedule, Task, WeeklyPlan
+    Goal, FixedBlock, Schedule, Task, WeeklyPlan, DailyLog
 )
 from app.schemas.schedule import (
     GenerateScheduleRequest, ScheduleResponse,
@@ -32,9 +32,10 @@ from app.schemas.schedule import (
 from app.schemas.insights import PatternResponse
 from app.services.constraint_solver import (
     ConstraintSolver, FixedBlockData, TaskRequirement,
-    PRIORITY_CORE, PRIORITY_NORMAL, PRIORITY_BONUS,
+    PRIORITY_CORE, PRIORITY_NORMAL,
     generate_exam_tasks, generate_fitness_tasks
 )
+from app.core.constants import PRIORITY_LABELS
 from app.services.llm_service import (
     build_schedule_prompt, call_llm, build_fallback_enrichment
 )
@@ -42,13 +43,6 @@ from app.services import insights_service
 from app.config import settings
 
 logger = logging.getLogger(__name__)
-
-# Maps priority int to label
-PRIORITY_LABELS = {
-    PRIORITY_CORE:   "Core",
-    PRIORITY_NORMAL: "Normal",
-    PRIORITY_BONUS:  "Bonus",
-}
 
 
 async def generate_schedule(
@@ -78,6 +72,31 @@ async def generate_schedule(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Complete your behavioural profile before generating a schedule.",
         )
+
+    # Load health profile for solver capacity modifiers
+    health_profile = await _get_health_profile(user.id, db)
+    capacity_modifier = 1.0
+    max_block_mins = 90
+    avoid_afternoon_peak = False
+
+    if health_profile:
+        # Chronic fatigue → reduce capacity by 15%
+        if health_profile.has_chronic_fatigue:
+            capacity_modifier *= 0.85
+        # Poor sleep quality → reduce capacity by 10%
+        if health_profile.sleep_quality == "poor":
+            capacity_modifier *= 0.90
+        elif health_profile.sleep_quality == "irregular":
+            capacity_modifier *= 0.93
+        # Low sleep hours → additional reduction
+        if health_profile.average_sleep_hrs and float(health_profile.average_sleep_hrs) < 6:
+            capacity_modifier *= 0.90
+        # Focus difficulty → shorter blocks
+        if health_profile.has_focus_difficulty:
+            max_block_mins = 30  # Pomodoro-style  # noqa: F841 — will be used when solver supports block limits
+        # Afternoon crash → avoid high-energy tasks after 2 PM
+        if health_profile.has_afternoon_crash:
+            avoid_afternoon_peak = True  # noqa: F841 — will be used when solver supports afternoon guard
 
     goal = await _get_active_goal(user.id, db)
     if not goal:
@@ -111,14 +130,16 @@ async def generate_schedule(
         for b in fixed_blocks
     ]
 
-    # Build solver — Fix #1 handled inside ConstraintSolver.__init__
+    # Build solver with health-adjusted capacity
+    adjusted_commitment = float(behavioural.daily_commitment_hrs) * capacity_modifier
+
     solver = ConstraintSolver(
         fixed_blocks=solver_blocks,
         peak_energy_start=str(behavioural.peak_energy_start or "09:00"),
         peak_energy_end=str(behavioural.peak_energy_end or "13:00"),
         wake_time=str(behavioural.wake_time),
         sleep_time=str(behavioural.sleep_time),
-        daily_commitment_hrs=float(behavioural.daily_commitment_hrs),
+        daily_commitment_hrs=adjusted_commitment,
         heavy_days=behavioural.heavy_days or [],
         light_days=behavioural.light_days or [],
         chronotype=behavioural.chronotype,
@@ -192,23 +213,80 @@ async def generate_schedule(
 
 
 async def get_today_schedule(user: User, db: AsyncSession) -> ScheduleResponse:
-    today    = get_user_today(getattr(user, "timezone", "Asia/Kolkata"))
+    # Sick mode guard — return paused response
+    if user.paused_at is not None:
+        from app.core.constants import BANKRUPTCY_INACTIVITY_DAYS
+        return ScheduleResponse(
+            id=uuid.uuid4(),
+            user_id=user.id,
+            schedule_date=get_user_today(user.timezone),
+            day_type="paused",
+            day_type_reason=f"Account paused: {user.paused_reason or 'rest mode'}",
+            strategy_note="You're on a break. Rest up — your goals will be here when you're ready.",
+            tasks=[],
+            parked_tasks=[],
+            total_tasks=0,
+            total_study_mins=0,
+            day_capacity_hrs=0.0,
+            recovery_mode=False,
+            is_paused=True,
+        )
+
+    today = get_user_today(user.timezone)
+
+    # Schedule bankruptcy detection — check for missed days
+    from app.core.constants import BANKRUPTCY_INACTIVITY_DAYS
+    last_log = await db.execute(
+        select(DailyLog)
+        .where(and_(DailyLog.user_id == user.id, DailyLog.log_date < today))
+        .order_by(DailyLog.log_date.desc())
+        .limit(1)
+    )
+    last = last_log.scalar_one_or_none()
+    recovery_mode = False
+    if last and (today - last.log_date).days >= BANKRUPTCY_INACTIVITY_DAYS:
+        # Auto-park all pending tasks from missed days
+        missed_tasks = await db.execute(
+            select(Task).where(
+                and_(
+                    Task.user_id == user.id,
+                    Task.task_status == "active",
+                    Task.deleted_at.is_(None),
+                )
+            )
+        )
+        for task in missed_tasks.scalars().all():
+            task.previous_status = task.task_status
+            task.task_status = "parked"
+            task.schedule_id = None
+            task.scheduled_start = None
+            task.scheduled_end = None
+        await db.flush()
+        recovery_mode = True
+        logger.info("schedule_bankruptcy_triggered", extra={
+            "user_id": str(user.id), "missed_days": (today - last.log_date).days,
+        })
+
     existing = await _get_existing_schedule(user.id, today, db)
     if existing:
-        return await _build_schedule_response(existing, db)
-    return await generate_schedule(
+        resp = await _build_schedule_response(existing, db)
+        resp.recovery_mode = recovery_mode
+        return resp
+    resp = await generate_schedule(
         user,
         GenerateScheduleRequest(target_date=today.isoformat()),
         db,
     )
+    resp.recovery_mode = recovery_mode
+    return resp
 
 
 async def regenerate_today_schedule(user: User, db: AsyncSession) -> ScheduleResponse:
     """
     Re-generate today's schedule from scratch.
-    Preserves completed tasks, deletes the old schedule.
+    Preserves completed tasks. Soft-deletes the old schedule.
     """
-    today = get_user_today(getattr(user, "timezone", "Asia/Kolkata"))
+    today = get_user_today(user.timezone)
     existing = await _get_existing_schedule(user.id, today, db)
 
     if existing:
@@ -229,8 +307,8 @@ async def regenerate_today_schedule(user: User, db: AsyncSession) -> ScheduleRes
             task.scheduled_start = None
             task.scheduled_end = None
 
-        # Delete the old schedule
-        await db.delete(existing)
+        # Soft-delete the old schedule (preserves FK integrity for TaskLogs)
+        existing.deleted_at = datetime.now(timezone.utc)
         await db.flush()
         logger.info("schedule_regenerated_cleanup", extra={
             "user_id": str(user.id), "date": today.isoformat(),
@@ -308,6 +386,17 @@ async def _get_behavioural_profile(
     result = await db.execute(
         select(UserBehaviouralProfile).where(
             UserBehaviouralProfile.user_id == user_id
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def _get_health_profile(
+    user_id: uuid.UUID, db: AsyncSession
+) -> Optional[UserHealthProfile]:
+    result = await db.execute(
+        select(UserHealthProfile).where(
+            UserHealthProfile.user_id == user_id
         )
     )
     return result.scalar_one_or_none()
@@ -493,7 +582,7 @@ async def _save_schedule(
 
     task_descriptions = enrichment.get("task_descriptions", {})
 
-    # Save scheduled tasks
+    # Save scheduled tasks (including slot_reasons)
     for solver_task in solver_result.scheduled_tasks:
         description = task_descriptions.get(solver_task.title, solver_task.description)
         task = Task(
@@ -511,6 +600,7 @@ async def _save_schedule(
             is_mvp_task=solver_task.is_mvp_task,
             sequence_order=solver_task.sequence_order,
             task_status="active",
+            slot_reasons=getattr(solver_task, 'slot_reasons', None),
         )
         db.add(task)
 
@@ -573,12 +663,12 @@ async def _build_schedule_response(
 ) -> ScheduleResponse:
     """Load schedule + tasks and build full response with parked tasks."""
 
-    # Active tasks on this schedule
+    # Active + completed tasks on this schedule (Bug fix: completed tasks must stay visible)
     result = await db.execute(
         select(Task).where(
             and_(
                 Task.schedule_id == schedule.id,
-                Task.task_status == "active",
+                Task.task_status.in_(["active", "completed"]),
                 Task.deleted_at.is_(None),
             )
         ).order_by(Task.sequence_order)
@@ -586,7 +676,6 @@ async def _build_schedule_response(
     tasks = result.scalars().all()
 
     # Fix #6 — only load parked tasks created today or not yet scheduled
-    # This prevents accumulating the entire history of parked tasks
     result_parked = await db.execute(
         select(Task).where(
             and_(
@@ -594,7 +683,6 @@ async def _build_schedule_response(
                 Task.goal_id     == schedule.goal_id,
                 Task.task_status.in_(["deferred", "parked"]),
                 Task.deleted_at.is_(None),
-                # Only tasks created on the same day as this schedule
                 Task.created_at >= schedule.created_at - timedelta(hours=1),
             )
         ).order_by(Task.priority, Task.sequence_order)
@@ -616,6 +704,7 @@ async def _build_schedule_response(
             is_mvp_task=t.is_mvp_task,
             sequence_order=t.sequence_order,
             task_status=t.task_status,
+            slot_reasons=t.slot_reasons,
         )
         for t in tasks
     ]

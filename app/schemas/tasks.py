@@ -142,3 +142,27 @@ class BulkDeleteResponse(BaseModel):
     """Response after bulk delete."""
     deleted_count: int
     message: str
+
+
+class QuickAddRequest(BaseModel):
+    """Quick-capture: minimal task creation, straight to parking lot."""
+    title: str
+    duration_mins: int = 30
+    goal_id: Optional[uuid.UUID] = None
+
+    @field_validator("title")
+    @classmethod
+    def valid_title(cls, v: str) -> str:
+        v = v.strip()
+        if len(v) < 2:
+            raise ValueError("Title must be at least 2 characters")
+        if len(v) > 200:
+            raise ValueError("Title must be at most 200 characters")
+        return v
+
+    @field_validator("duration_mins")
+    @classmethod
+    def valid_duration(cls, v: int) -> int:
+        if v < 5 or v > 480:
+            raise ValueError("Duration must be between 5 and 480 minutes")
+        return v

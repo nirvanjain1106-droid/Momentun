@@ -9,6 +9,8 @@ from app.schemas.insights import (
     PatternsResponse,
     TrajectoryResponse,
     WeeklyInsightsResponse,
+    StreakResponse,
+    HeatmapResponse,
 )
 from app.services import insights_service
 
@@ -23,7 +25,7 @@ router = APIRouter(prefix="/insights", tags=["Insights"])
     description=(
         "Returns detected behaviour patterns for the user: "
         "day-of-week avoidance, time decay, streak vulnerability, "
-        "post-bad-day collapse, subject avoidance, overload triggers. "
+        "post-bad-day collapse, subject avoidance, overload triggers, golden hour. "
         "Requires at least 2 weeks of daily logs for reliable patterns."
     ),
 )
@@ -78,3 +80,33 @@ async def get_weekly_insights(
     ),
 ) -> WeeklyInsightsResponse:
     return await insights_service.get_weekly_insights(current_user, db, week_start)
+
+
+@router.get(
+    "/streak",
+    response_model=StreakResponse,
+    summary="Get current streak",
+    description="Returns current streak and best streak info.",
+)
+async def get_streak(
+    current_user: CurrentUserComplete,
+    db: DB,
+) -> StreakResponse:
+    return await insights_service.get_streak(current_user, db)
+
+
+@router.get(
+    "/heatmap",
+    response_model=HeatmapResponse,
+    summary="Get activity heatmap",
+    description=(
+        "GitHub-style contribution heatmap data. "
+        "Default 90 days. Use ?days=30 for a shorter view."
+    ),
+)
+async def get_heatmap(
+    current_user: CurrentUserComplete,
+    db: DB,
+    days: int = Query(default=90, ge=7, le=365, description="Number of days"),
+) -> HeatmapResponse:
+    return await insights_service.get_heatmap(current_user, db, days)

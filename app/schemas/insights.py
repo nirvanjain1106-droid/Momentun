@@ -83,3 +83,28 @@ class WeeklyInsightsResponse(BaseModel):
         if hasattr(value, "isoformat"):
             return value.isoformat()
         return str(value)
+
+
+class StreakResponse(BaseModel):
+    """Current streak and best streak info."""
+    current_streak: int
+    best_streak: int
+    streak_protected: bool  # Has freeze available
+    last_active_date: Optional[str] = None
+
+
+class HeatmapEntry(BaseModel):
+    """One day's heatmap data."""
+    date: str
+    completion_rate: Optional[float]
+    intensity: str  # "none", "low", "medium", "high"
+    tasks_completed: int
+    tasks_scheduled: int
+
+
+class HeatmapResponse(BaseModel):
+    """GitHub-style contribution heatmap data."""
+    entries: List[HeatmapEntry]
+    total_days: int
+    active_days: int
+    average_completion_rate: Optional[float]

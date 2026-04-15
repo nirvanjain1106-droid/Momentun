@@ -18,6 +18,8 @@ Fixes:
 
 import json
 import re
+import time
+import logging
 from typing import Optional
 
 import httpx
@@ -29,6 +31,8 @@ from app.services.insights_service import (
     summarize_patterns_for_prompt,
     trajectory_prompt_snapshot,
 )
+
+logger = logging.getLogger(__name__)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -139,32 +143,46 @@ async def call_llm(
     prompt: str,
     groq_api_key: Optional[str] = None,
     preferred_model: str = "primary",
+    user_id=None,
+    db=None,
+    endpoint: str = "schedule_generate",
 ) -> Optional[dict]:
     """
-    Call LLM with priority chain:
-    1. OpenRouter (Qwen3.5 — primary or secondary based on user preference)
-    2. Groq (llama-3.3-70b — free fallback)
-    3. Ollama local (gemma3:4b — offline fallback)
-
-    preferred_model: "primary" = Qwen3.5-27B, "secondary" = Qwen3.5-397B-A17B
+    Call LLM with priority chain + usage tracking.
+    1. OpenRouter (Qwen3.5)
+    2. Groq (llama-3.3-70b)
+    3. Ollama local (gemma3:4b)
     Never raises — always returns dict or None.
     """
     openrouter_key = settings.OPENROUTER_API_KEY
     if openrouter_key:
         model = QWEN_SECONDARY if preferred_model == "secondary" else QWEN_PRIMARY
-        result = await _call_openrouter(prompt, openrouter_key, model)
+        start = time.monotonic()
+        result, usage = await _call_openrouter(prompt, openrouter_key, model)
+        latency = int((time.monotonic() - start) * 1000)
         if result:
+            await _log_llm_usage(user_id, db, endpoint, model, "openrouter", usage, latency, True)
             return result
+        if usage:
+            await _log_llm_usage(user_id, db, endpoint, model, "openrouter", usage, latency, False, "No result")
 
     # Groq fallback
     groq_key = groq_api_key or settings.GROQ_API_KEY
     if groq_key:
-        result = await _call_groq(prompt, groq_key)
+        start = time.monotonic()
+        result, usage = await _call_groq(prompt, groq_key)
+        latency = int((time.monotonic() - start) * 1000)
         if result:
+            await _log_llm_usage(user_id, db, endpoint, GROQ_MODEL, "groq", usage, latency, True)
             return result
 
     # Local Ollama fallback
-    return await _call_ollama(prompt)
+    start = time.monotonic()
+    result, usage = await _call_ollama(prompt)
+    latency = int((time.monotonic() - start) * 1000)
+    if result:
+        await _log_llm_usage(user_id, db, endpoint, OLLAMA_MODEL, "ollama", usage, latency, True)
+    return result
 
 
 # ─────────────────────────────────────────────────────────────
@@ -175,11 +193,12 @@ async def _call_openrouter(
     prompt: str,
     api_key: str,
     model: str,
-) -> Optional[dict]:
+) -> tuple[Optional[dict], dict]:
     """
     Call OpenRouter API with Qwen3.5.
-    Handles Qwen3.5 thinking mode — strips <think>...</think> before parsing.
+    Returns (result_dict, usage_dict) tuple.
     """
+    usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
@@ -187,7 +206,6 @@ async def _call_openrouter(
                 headers={
                     "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",
-                    # OpenRouter recommended headers
                     "HTTP-Referer": "https://momentum-app.local",
                     "X-Title": "Momentum Scheduler",
                 },
@@ -199,17 +217,19 @@ async def _call_openrouter(
                 },
             )
             response.raise_for_status()
-            data    = response.json()
+            data = response.json()
+            usage = data.get("usage", usage)
             content = data["choices"][0]["message"]["content"]
-            # Fix — strip Qwen3.5 <think> tags before parsing
             content = _strip_think_tags(content)
-            return _parse_llm_json(content)
-    except Exception:
-        return None
+            return _parse_llm_json(content), usage
+    except Exception as e:
+        logger.warning("openrouter_call_failed", extra={"error": str(e)})
+        return None, usage
 
 
-async def _call_groq(prompt: str, api_key: str) -> Optional[dict]:
+async def _call_groq(prompt: str, api_key: str) -> tuple[Optional[dict], dict]:
     """Groq API call — fast free fallback."""
+    usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(
@@ -226,15 +246,18 @@ async def _call_groq(prompt: str, api_key: str) -> Optional[dict]:
                 },
             )
             response.raise_for_status()
-            data    = response.json()
+            data = response.json()
+            usage = data.get("usage", usage)
             content = data["choices"][0]["message"]["content"]
-            return _parse_llm_json(content)
-    except Exception:
-        return None
+            return _parse_llm_json(content), usage
+    except Exception as e:
+        logger.warning("groq_call_failed", extra={"error": str(e)})
+        return None, usage
 
 
-async def _call_ollama(prompt: str) -> Optional[dict]:
+async def _call_ollama(prompt: str) -> tuple[Optional[dict], dict]:
     """Local Ollama fallback."""
+    usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(
@@ -246,11 +269,45 @@ async def _call_ollama(prompt: str) -> Optional[dict]:
                 },
             )
             response.raise_for_status()
-            data    = response.json()
+            data = response.json()
             content = data.get("response", "")
-            return _parse_llm_json(content)
+            # Ollama provides token counts differently
+            usage = {
+                "prompt_tokens": data.get("prompt_eval_count", 0),
+                "completion_tokens": data.get("eval_count", 0),
+                "total_tokens": data.get("prompt_eval_count", 0) + data.get("eval_count", 0),
+            }
+            return _parse_llm_json(content), usage
+    except Exception as e:
+        logger.warning("ollama_call_failed", extra={"error": str(e)})
+        return None, usage
+
+
+async def _log_llm_usage(
+    user_id, db, endpoint: str, model: str, provider: str,
+    usage: dict, latency_ms: int, success: bool, error_msg: str = None,
+) -> None:
+    """Log LLM usage to database for cost tracking."""
+    if not user_id or not db:
+        return
+    try:
+        from app.models.goal import LLMUsageLog
+        log = LLMUsageLog(
+            user_id=user_id,
+            endpoint=endpoint,
+            model_used=model,
+            provider=provider,
+            prompt_tokens=usage.get("prompt_tokens", 0),
+            completion_tokens=usage.get("completion_tokens", 0),
+            total_tokens=usage.get("total_tokens", 0),
+            latency_ms=latency_ms,
+            success=success,
+            error_message=error_msg,
+        )
+        db.add(log)
+        await db.flush()
     except Exception:
-        return None
+        pass  # Never fail the main flow for logging
 
 
 # ─────────────────────────────────────────────────────────────

@@ -15,6 +15,7 @@ from app.schemas.tasks import (
     TaskDetailResponse,
     ParkedTasksListResponse,
     BulkDeleteResponse,
+    QuickAddRequest,
 )
 from app.services import task_service
 
@@ -154,3 +155,24 @@ async def bulk_delete_tasks(
     db: DB,
 ) -> BulkDeleteResponse:
     return await task_service.bulk_delete_tasks(current_user.id, data.task_ids, db)
+
+
+@router.post(
+    "/quick-add",
+    response_model=TaskDetailResponse,
+    status_code=201,
+    summary="Quick-add a task",
+    description=(
+        "Zero-friction task capture. Just provide title + duration. "
+        "Task goes straight to parking lot. "
+        "Can be scheduled later via reschedule or by the solver."
+    ),
+)
+async def quick_add_task(
+    data: QuickAddRequest,
+    current_user: CurrentUserComplete,
+    db: DB,
+) -> TaskDetailResponse:
+    return await task_service.quick_add_task(
+        current_user.id, data.title, data.duration_mins, data.goal_id, db
+    )

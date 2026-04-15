@@ -28,11 +28,12 @@ Built with FastAPI, PostgreSQL, and a constraint-based scheduling engine enhance
 
 ### Request Flow
 1. **Auth** → JWT-based (register, login, verify email, password reset)
-2. **Onboarding** → Academic → Health → Behavioural → Fixed Blocks → Goal
-3. **Scheduling** → Constraint solver → LLM enrichment (background) → Daily schedule
-4. **Tasks** → Real-time complete/park → Parking lot management → Undo/reschedule
+2. **Onboarding** → Academic → Health (encrypted) → Behavioural → Fixed Blocks → Goal
+3. **Scheduling** → Health-adjusted constraint solver → LLM enrichment (with token tracking) → Daily schedule
+4. **Tasks** → Real-time complete/park (row-locked) → Parking lot management → Quick-add → Undo/reschedule
 5. **Check-ins** → Morning (energy/mood) → Day type adjustment → Evening (task completions)
-6. **Insights** → Pattern detection → Trajectory projection → Weekly reports
+6. **Insights** → Pattern detection (7 detectors + Golden Hour) → Streak tracking → Heatmap → Trajectory → Weekly reports
+7. **User Profile** → Settings page (GET/PATCH profile, change password, delete account, data export, feedback, pause/resume)
 
 ---
 
@@ -46,18 +47,32 @@ Built with FastAPI, PostgreSQL, and a constraint-based scheduling engine enhance
 - [x] Constraint-based daily schedule generation
 - [x] **Slot reasoning engine** — every task explains WHY it's placed at that time
 - [x] LLM-generated coaching (OpenRouter/Groq/Ollama fallback chain)
+- [x] **LLM token tracking** — every call logs provider, tokens, latency, success/failure
 - [x] Parallel week schedule generation (`asyncio.gather`)
 - [x] Schedule regeneration (re-run solver when day goes off-plan)
 - [x] Morning check-in → automatic day type adjustment
 - [x] Evening review → task completion tracking
 
+### User Profile (Commit 2)
+- [x] `GET /users/me` — retrieve profile (decrypted health notes)
+- [x] `PATCH /users/me` — update name, timezone, notification preferences
+- [x] `POST /users/me/change-password` — secure password change
+- [x] `DELETE /users/me` — GDPR-compliant account deletion (cascades all data)
+- [x] `GET /users/me/export` — full data export (goals, tasks, logs, feedback)
+- [x] `POST /users/me/feedback` — in-app bug reports & feedback with sentiment
+- [x] `GET /users/me/day-score` — holistic 0-100 daily score (completion, timing, streaks, mood)
+- [x] `POST /users/me/pause` — sick mode / vacation freeze (freezes streaks, shifts deadlines)
+- [x] `POST /users/me/resume` — resume from pause
+
 ### Task Management (Phase 4)
 - [x] Real-time task completion (creates TaskLog immediately, not just at evening review)
+- [x] **Row-level locking** — `SELECT FOR UPDATE` on task status changes prevents race conditions
 - [x] Manual task parking (move to parking lot)
 - [x] Task rescheduling (move parked task to a specific future date)
 - [x] One-level undo on any task action
 - [x] Parking lot with staleness detection (>14 days = stale)
 - [x] Bulk delete for stale parking lot cleanup
+- [x] **Quick-add** — zero-friction task capture (title + duration, straight to parking lot)
 
 ### Goal Lifecycle (Phase 4)
 - [x] List all goals (active + history with progress)
@@ -66,11 +81,24 @@ Built with FastAPI, PostgreSQL, and a constraint-based scheduling engine enhance
 - [x] Single-active-goal enforcement
 - [x] Goal CRUD (update, pause, resume, soft-delete)
 
-### Intelligence (Phase 3)
-- [x] 6 behaviour pattern detectors (day-of-week avoidance, time decay, streak vulnerability, post-bad-day collapse, subject avoidance, overload triggers)
+### Intelligence (Phase 3 + Commit 2)
+- [x] **7 behaviour pattern detectors** (day-of-week avoidance, time decay, streak vulnerability, post-bad-day collapse, subject avoidance, overload triggers, **golden hour**)
+- [x] **Bumped pattern thresholds** — all detectors now require ≥14 days of data (via `PATTERN_MIN_SAMPLES` constants)
 - [x] Goal trajectory & pace projection
+- [x] **Streak tracking** — current streak, best streak, configurable completion threshold (≥60%)
+- [x] **Activity heatmap** — GitHub-style contribution data (7-365 days)
 - [x] Weekly performance reports with coaching notes
 - [x] Pattern-aware and trajectory-aware LLM prompts
+
+### Security & Resilience (Commit 2)
+- [x] **Field-level encryption** — health notes encrypted with Fernet (AES-128-CBC), derived from SECRET_KEY
+- [x] **LLM rate limiting** — 3 calls/hour on schedule generate/regenerate (prevents cost abuse)
+- [x] **LLM usage logging** — every call tracked in `llm_usage_logs` table (provider, tokens, latency, success)
+- [x] **Row-level locking** — `SELECT FOR UPDATE` on task mutations
+- [x] **Schedule bankruptcy** — auto-detects >2 days inactivity, parks stale tasks, enters recovery mode
+- [x] **Sick mode / vacation freeze** — pauses streak tracking, shifts goal deadlines
+- [x] **Soft-delete everywhere** — schedules use `deleted_at` instead of hard-delete, preserving FK integrity
+- [x] **GDPR compliance** — account deletion cascades all user data, data export endpoint
 
 ### Infrastructure
 - [x] Rate limiting (SlowAPI) on all endpoints
@@ -81,6 +109,7 @@ Built with FastAPI, PostgreSQL, and a constraint-based scheduling engine enhance
 - [x] Dependabot for automated dependency updates
 - [x] Race-safe database operations (PostgreSQL upserts)
 - [x] User timezone support (no more hardcoded Asia/Kolkata)
+- [x] **Shared constants module** (`app/core/constants.py`) — single source of truth for priorities, statuses, thresholds
 
 ---
 
@@ -102,26 +131,40 @@ Built with FastAPI, PostgreSQL, and a constraint-based scheduling engine enhance
 |--------|------|-------------|
 | `GET`  | `/api/v1/onboarding/status` | Get onboarding progress |
 | `POST` | `/api/v1/onboarding/academic-profile` | Step 2: Academic details |
-| `POST` | `/api/v1/onboarding/health-profile` | Optional: Health info |
+| `POST` | `/api/v1/onboarding/health-profile` | Optional: Health info (encrypted) |
 | `POST` | `/api/v1/onboarding/behavioural-profile` | Step 3: Schedule preferences |
 | `POST` | `/api/v1/onboarding/fixed-blocks` | Step 4: Fixed commitments |
 | `POST` | `/api/v1/onboarding/goal` | Step 5: Create first goal |
 
+### User Profile *(new in Commit 2)*
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET`  | `/api/v1/users/me` | Get user profile |
+| `PATCH` | `/api/v1/users/me` | Update profile fields |
+| `POST` | `/api/v1/users/me/change-password` | Change password |
+| `DELETE` | `/api/v1/users/me` | Delete account (GDPR) |
+| `GET`  | `/api/v1/users/me/export` | Export all user data |
+| `POST` | `/api/v1/users/me/feedback` | Submit feedback / bug report |
+| `GET`  | `/api/v1/users/me/day-score` | Get today's holistic score (0-100) |
+| `POST` | `/api/v1/users/me/pause` | Enter sick mode / vacation |
+| `POST` | `/api/v1/users/me/resume` | Resume from pause |
+
 ### Schedule
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/api/v1/schedule/generate` | Generate daily schedule |
+| `POST` | `/api/v1/schedule/generate` | Generate daily schedule (LLM rate-limited: 3/hr) |
 | `GET`  | `/api/v1/schedule/today` | Get/auto-generate today's schedule |
 | `GET`  | `/api/v1/schedule/week` | Get full week schedule |
-| `POST` | `/api/v1/schedule/regenerate` | Re-run solver when day goes off-plan |
+| `POST` | `/api/v1/schedule/regenerate` | Re-run solver (LLM rate-limited: 3/hr) |
 
 ### Tasks
 | Method | Path | Description |
 |--------|------|-------------|
-| `PATCH` | `/api/v1/tasks/{id}/complete` | Mark done in real time |
+| `PATCH` | `/api/v1/tasks/{id}/complete` | Mark done in real time (row-locked) |
 | `PATCH` | `/api/v1/tasks/{id}/park` | Move to parking lot |
 | `PATCH` | `/api/v1/tasks/{id}/undo` | Undo last status change |
 | `POST`  | `/api/v1/tasks/reschedule` | Move parked task to specific date |
+| `POST`  | `/api/v1/tasks/quick-add` | Quick-capture a task (→ parking lot) |
 | `GET`   | `/api/v1/tasks/parked` | View parking lot (?stale=true) |
 | `DELETE` | `/api/v1/tasks/{id}` | Soft-delete a task |
 | `POST`  | `/api/v1/tasks/bulk-delete` | Delete multiple stale tasks |
@@ -135,9 +178,11 @@ Built with FastAPI, PostgreSQL, and a constraint-based scheduling engine enhance
 ### Insights
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET`  | `/api/v1/insights/patterns` | Active behaviour patterns |
+| `GET`  | `/api/v1/insights/patterns` | Active behaviour patterns (7 detectors) |
 | `GET`  | `/api/v1/insights/trajectory` | Goal pace projection |
 | `GET`  | `/api/v1/insights/weekly` | Weekly performance report |
+| `GET`  | `/api/v1/insights/streak` | Current & best streak |
+| `GET`  | `/api/v1/insights/heatmap` | Activity heatmap (?days=90) |
 
 ### Goals
 | Method | Path | Description |
@@ -204,14 +249,14 @@ docker-compose up -d
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `SECRET_KEY` | **Production** | Auto-generated | JWT signing key (32+ chars) |
+| `SECRET_KEY` | **Production** | Auto-generated | JWT signing key + encryption key derivation (32+ chars) |
 | `POSTGRES_*` | Yes | See .env.example | Database connection |
 | `OPENROUTER_API_KEY` | No | - | Primary LLM provider |
 | `GROQ_API_KEY` | No | - | Fallback LLM provider |
 | `SENTRY_DSN` | No | - | Sentry error tracking |
 | `SMTP_HOST` | No | - | Email SMTP server (empty = console) |
 | `RATE_LIMIT_AUTH` | No | `10/minute` | Auth endpoint rate limit |
-| `RATE_LIMIT_SCHEDULE` | No | `10/minute` | Schedule endpoint rate limit |
+| `RATE_LIMIT_LLM` | No | `3/hour` | LLM-triggering endpoint rate limit |
 
 See [.env.example](.env.example) for all available settings.
 
@@ -228,6 +273,9 @@ pytest --cov=app --cov-report=term-missing
 
 # Run specific test file
 pytest tests/test_constraint_solver.py -v
+
+# LLM fallback chain tests
+pytest tests/test_llm_service.py -v
 
 # Lint
 ruff check app tests
@@ -257,8 +305,10 @@ app/
 ├── database.py            # Async SQLAlchemy engine
 ├── main.py                # FastAPI app + middleware
 ├── core/
+│   ├── constants.py       # Shared constants (priorities, statuses, thresholds)
 │   ├── dependencies.py    # Auth dependency injection
 │   ├── email.py           # Email sender (SMTP/console)
+│   ├── encryption.py      # Field-level Fernet encryption
 │   ├── logging.py         # Structured logging
 │   ├── middleware.py       # Request ID middleware
 │   ├── rate_limit.py      # SlowAPI limiter
@@ -266,36 +316,50 @@ app/
 │   └── timezone.py        # User timezone utilities
 ├── models/
 │   ├── user.py            # User, profiles, settings
-│   └── goal.py            # Goal, schedule, tasks, logs, patterns
+│   └── goal.py            # Goal, schedule, tasks, logs, patterns, LLMUsageLog, Feedback
 ├── schemas/               # Pydantic request/response models
 │   ├── auth.py
 │   ├── checkin.py
 │   ├── goals.py
-│   ├── insights.py
+│   ├── insights.py        # + StreakResponse, HeatmapResponse
 │   ├── onboarding.py
-│   ├── schedule.py
-│   └── tasks.py
+│   ├── schedule.py        # + recovery_mode, is_paused
+│   ├── tasks.py           # + QuickAddRequest
+│   └── users.py           # (new) Profile, password, feedback, pause, export schemas
 ├── routers/               # FastAPI route handlers
 │   ├── auth.py
 │   ├── checkin.py
 │   ├── goals.py
-│   ├── insights.py
+│   ├── insights.py        # + /streak, /heatmap
 │   ├── onboarding.py
 │   ├── schedule.py
-│   └── tasks.py
+│   ├── tasks.py           # + /quick-add
+│   └── users.py           # (new) /users/me endpoints
 └── services/              # Business logic
     ├── auth_service.py
     ├── checkin_service.py
     ├── constraint_solver.py
     ├── goal_service.py
-    ├── insights_service.py
-    ├── llm_service.py
-    ├── onboarding_service.py
-    ├── schedule_service.py
-    └── task_service.py
+    ├── insights_service.py   # + golden_hour, get_streak, get_heatmap
+    ├── llm_service.py        # + token tracking, usage logging
+    ├── onboarding_service.py # + field-level encryption on health notes
+    ├── schedule_service.py   # + health→solver integration, bankruptcy, sick mode
+    ├── task_service.py       # + row-locking, quick-add
+    └── user_service.py       # (new) profile, export, feedback, pause, day-score
 tests/                     # pytest test suite
 alembic/                   # Database migrations
 ```
+
+---
+
+## Database Models Added (Commit 2)
+
+| Table | Purpose |
+|-------|---------|
+| `llm_usage_logs` | Track every LLM call (provider, model, tokens, latency, success) |
+| `feedback` | User bug reports and sentiment feedback |
+| `tasks.slot_reasons` | JSONB column explaining why each task was placed at its time slot |
+| `users.paused_at/until/reason` | Sick mode / vacation freeze state |
 
 ---
 
