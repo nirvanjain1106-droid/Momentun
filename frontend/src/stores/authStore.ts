@@ -53,8 +53,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           return;
         }
       }
-    } catch (e) {
-      // Parse error
+    } catch {
+      // Parse error — ignore corrupted localStorage
     }
 
     set({ isHydrated: true });
@@ -72,7 +72,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         const parsed = JSON.parse(local);
         parsed.onboardingComplete = complete;
         localStorage.setItem('auth_state', JSON.stringify(parsed));
-      } catch (e) {}
+      } catch { /* ignore parse error */ }
     }
   },
 
@@ -84,7 +84,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         const parsed = JSON.parse(local);
         parsed.userName = name;
         localStorage.setItem('auth_state', JSON.stringify(parsed));
-      } catch (e) {}
+      } catch { /* ignore parse error */ }
     }
   },
 
@@ -105,7 +105,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   logout: async () => {
     try {
       await client.post('/auth/logout');
-    } catch (e) {
+    } catch {
       // Ignore network errors, proceed to clear local state
     }
     

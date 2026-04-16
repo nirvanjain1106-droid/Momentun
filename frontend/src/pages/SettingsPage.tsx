@@ -36,8 +36,9 @@ export default function SettingsPage() {
       });
       addToast({ type: 'success', message: 'Password updated successfully' });
       setPasswordForm({ current: '', new_password: '' });
-    } catch (err: any) {
-      addToast({ type: 'error', message: err.message || 'Failed to update password' });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to update password';
+      addToast({ type: 'error', message: msg });
     } finally {
       setIsSubmitting(false);
     }
@@ -50,8 +51,9 @@ export default function SettingsPage() {
       await client.post('/users/me/feedback', { message: feedback });
       addToast({ type: 'success', message: 'Thank you for your feedback!' });
       setFeedback('');
-    } catch (err: any) {
-      addToast({ type: 'error', message: err.message || 'Failed to submit feedback' });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to submit feedback';
+      addToast({ type: 'error', message: msg });
     } finally {
       setIsSubmitting(false);
     }
@@ -67,7 +69,7 @@ export default function SettingsPage() {
       document.body.appendChild(link);
       link.click();
       link.parentNode?.removeChild(link);
-    } catch (err: any) {
+    } catch {
       addToast({ type: 'error', message: 'Failed to export data' });
     }
   };
@@ -81,8 +83,9 @@ export default function SettingsPage() {
           try {
             await client.delete('/users/me');
             await logout();
-          } catch (err: any) {
-            addToast({ type: 'error', message: err.message || 'Failed to delete account' });
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : 'Failed to delete account';
+            addToast({ type: 'error', message: msg });
           }
         }
       }

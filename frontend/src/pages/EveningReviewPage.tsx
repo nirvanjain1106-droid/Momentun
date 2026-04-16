@@ -60,7 +60,7 @@ export default function EveningReviewPage() {
       });
       useUIStore.getState().addToast({ type: 'success', message: 'Day review complete! Sleep well.' });
       navigate('/dashboard');
-    } catch (err) {
+    } catch {
       useUIStore.getState().addToast({ type: 'error', message: 'Failed to submit evening review' });
     } finally {
       setSubmitting(false);

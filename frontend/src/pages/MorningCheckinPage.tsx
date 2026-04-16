@@ -22,7 +22,7 @@ export default function MorningCheckinPage() {
       });
       // Skip the success card for now, just redirect to dashboard
       navigate('/dashboard');
-    } catch (err) {
+    } catch {
       useUIStore.getState().addToast({ type: 'error', message: 'Failed to submit check-in' });
     } finally {
       setSubmitting(false);

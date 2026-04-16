@@ -27,7 +27,7 @@ export default function GoalDetailPage() {
           motivation: goalRes.data.motivation || '',
           consequence: goalRes.data.consequence || ''
         });
-      } catch (err) {
+      } catch {
         useUIStore.getState().addToast({ type: 'error', message: 'Failed to load goal details' });
       } finally {
         setIsLoading(false);
@@ -42,8 +42,9 @@ export default function GoalDetailPage() {
       const res = await client.patch(`/goals/${goal.id}/status`, { status: newStatus });
       setGoal({ ...goal, status: res.data.status });
       addToast({ type: 'success', message: `Goal marked as ${newStatus}` });
-    } catch (err: any) {
-      addToast({ type: 'error', message: err.message || 'Failed to update status' });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to update status';
+      addToast({ type: 'error', message: msg });
     }
   };
 
@@ -55,8 +56,9 @@ export default function GoalDetailPage() {
       setGoal({ ...goal, ...res.data });
       setIsEditing(false);
       addToast({ type: 'success', message: 'Goal updated successfully' });
-    } catch (err: any) {
-      addToast({ type: 'error', message: err.message || 'Failed to update goal' });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to update goal';
+      addToast({ type: 'error', message: msg });
     }
   };
 

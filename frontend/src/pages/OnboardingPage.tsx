@@ -43,7 +43,7 @@ export default function OnboardingPage() {
         if (stepIndex > -1) {
           setCurrentStep(stepIndex);
         }
-      } catch (err) {
+      } catch {
         // If it fails, start from beginning
         setCurrentStep(0);
       } finally {
