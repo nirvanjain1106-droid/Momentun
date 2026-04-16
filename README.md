@@ -53,7 +53,7 @@ Built with FastAPI, PostgreSQL, and a two-pass constraint-based scheduling engin
 - [x] Morning check-in → automatic day type adjustment
 - [x] Evening review → task completion tracking
 
-### User Profile (Commit 2)
+### User Profile & Dashboard (Commit 2 & Sprint 3)
 - [x] `GET /users/me` — retrieve profile (decrypted health notes)
 - [x] `PATCH /users/me` — update name, timezone, notification preferences
 - [x] `POST /users/me/change-password` — secure password change
@@ -63,6 +63,8 @@ Built with FastAPI, PostgreSQL, and a two-pass constraint-based scheduling engin
 - [x] `GET /users/me/day-score` — holistic 0-100 daily score (completion, timing, streaks, mood)
 - [x] `POST /users/me/pause` — sick mode / vacation freeze (freezes streaks, shifts deadlines)
 - [x] `POST /users/me/resume` — resume from pause
+- [x] **Dashboard Navigation** — Aligned global navigation and refined PWA UI state handling.
+- [x] **New Goal Modal** — Finalized interactive multi-step goal creation on the frontend.
 
 ### Task Management (Phase 4)
 - [x] Real-time task completion (creates TaskLog immediately, not just at evening review)
@@ -97,7 +99,7 @@ Built with FastAPI, PostgreSQL, and a two-pass constraint-based scheduling engin
 - [x] Weekly performance reports with coaching notes
 - [x] Pattern-aware and trajectory-aware LLM prompts
 
-### Security & Resilience (Commit 2)
+### Security & Resilience (Commit 2 & Sprint 3)
 - [x] **Field-level encryption** — health notes encrypted with Fernet (AES-128-CBC), derived from SECRET_KEY
 - [x] **LLM rate limiting** — 3 calls/hour on schedule generate/regenerate (prevents cost abuse)
 - [x] **LLM usage logging** — every call tracked in `llm_usage_logs` table (provider, tokens, latency, success)
@@ -106,6 +108,9 @@ Built with FastAPI, PostgreSQL, and a two-pass constraint-based scheduling engin
 - [x] **Sick mode / vacation freeze** — pauses streak tracking, shifts goal deadlines
 - [x] **Soft-delete everywhere** — schedules use `deleted_at` instead of hard-delete, preserving FK integrity
 - [x] **GDPR compliance** — account deletion cascades all user data, data export endpoint
+- [x] **Strict Supply Chain Enforcement** — CI/CD dependency scanning (`pip-audit`) enforced to block builds on critical CVEs.
+- [x] **Vulnerability Remediation** — Overrides to mitigate frontend RCEs (`serialize-javascript`) and resolved backend framework vulnerabilities (FastAPI, Starlette, Cryptography).
+- [x] **IDOR Validation** — Endpoints rigorously audited for indirect object reference vulnerabilities and data leakage.
 
 ### Infrastructure
 - [x] Rate limiting (SlowAPI) on all endpoints
