@@ -56,6 +56,24 @@
   --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition-slow: 350ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* ═══ Shell Dimensions ═══ */
+  --nav-h: 64px;
+  --header-h: 56px;
+
+  /* ═══ Safe Area Aliases ═══ */
+  --sat: env(safe-area-inset-top);
+  --sar: env(safe-area-inset-right);
+  --sab: env(safe-area-inset-bottom);
+  --sal: env(safe-area-inset-left);
+
+  /* ═══ Z-Index Stratification ═══ */
+  --z-header: 40;
+  --z-bottom-nav: 50;
+  --z-fab: 60;
+  --z-toast: 80;
+  --z-modal-backdrop: 100;
+  --z-modal: 110;
 }
 
 body {

@@ -1,5 +1,6 @@
 import type { TaskDetail } from '../../api/scheduleApi';
 import { useScheduleStore } from '../../stores/scheduleStore';
+import { Check, Pause } from 'lucide-react';
 
 export function TaskCard({ task }: { task: TaskDetail }) {
   // Isolate the state selection to strictly prevent globally induced render storms
@@ -31,12 +32,19 @@ export function TaskCard({ task }: { task: TaskDetail }) {
   };
 
   const statusStyles = isCompleted
-    ? 'opacity-60 bg-green-50 dark:bg-green-900 border-green-200 dark:border-green-800'
+    ? 'bg-green-50 dark:bg-green-900 border-gray-200 dark:border-gray-700'
     : isParked
-    ? 'opacity-50 bg-gray-100 dark:bg-gray-800 border-gray-200 dark:border-gray-700'
+    ? 'bg-gray-100 dark:bg-gray-800 border-gray-200 dark:border-gray-700'
     : isActive
     ? 'ring-2 ring-brand-500 bg-white dark:bg-gray-800 border-transparent shadow-md'
     : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 shadow-sm';
+
+  const getLeftBorderColor = () => {
+    if (isCompleted) return 'var(--status-success)';
+    if (isParked) return 'var(--text-muted)';
+    if (isActive) return 'var(--accent-primary)';
+    return 'transparent';
+  };
 
   return (
     <div className={`relative z-10 flex gap-4 transition-all duration-300 ${isBusy ? 'opacity-70 scale-[0.98]' : ''}`}>
@@ -56,10 +64,15 @@ export function TaskCard({ task }: { task: TaskDetail }) {
       />
 
       {/* Card Content */}
-      <div className={`flex-1 border rounded-lg p-4 flex flex-col gap-2 ${statusStyles}`}>
+      <div 
+        className={`flex-1 border rounded-lg p-4 flex flex-col gap-2 ${statusStyles} border-l-4`}
+        style={{ borderLeftColor: getLeftBorderColor() }}
+      >
         <div className="flex justify-between items-start">
           <div>
-            <h3 className={`font-semibold ${isCompleted ? 'line-through text-gray-500' : 'text-gray-800 dark:text-gray-100'}`}>
+            <h3 className={`font-semibold flex items-center gap-2 ${isCompleted ? 'line-through text-gray-500' : 'text-gray-800 dark:text-gray-100'}`}>
+              {isCompleted && <><Check size={16} className="text-[color:var(--status-success)]" /><span className="sr-only">Completed</span></>}
+              {isParked && <><Pause size={16} className="text-[color:var(--text-muted)]" /><span className="sr-only">Parked</span></>}
               {task.title}
             </h3>
             {task.description && (

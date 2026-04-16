@@ -1,14 +1,23 @@
 import React, { useEffect, useState } from 'react';
 import { useScheduleStore } from '../stores/scheduleStore';
 import { useExponentialBackoff } from '../hooks/useExponentialBackoff';
+import { useUIStore } from '../stores/uiStore';
+import { Archive } from 'lucide-react';
 
 // Component Stubs (We will implement these later)
 const Timeline = React.lazy(() => import('../components/dashboard/Timeline').then((m) => ({ default: m.Timeline })));
 const ParkingLotPanel = React.lazy(() => import('../components/dashboard/ParkingLotPanel').then((m) => ({ default: m.ParkingLotPanel })));
 
-export default function DashboardPage() {
+interface DashboardPageProps {
+  view?: 'dashboard' | 'schedule';
+}
+
+export default function DashboardPage({ view = 'dashboard' }: DashboardPageProps) {
   const { fetchSchedule, schedule, isLoading, error } = useScheduleStore();
+  const { activeModal, openModal } = useUIStore();
   const [initialLoad, setInitialLoad] = useState(true);
+  const [isMobile, setIsMobile] = useState(false);
+  const isParkingLotOpen = activeModal?.name === 'parking-lot';
 
   // Initial Data Fetching via allSettled (for potential other async things like /me/day-score although 
   // the plan says store does this). In scheduleStore, fetchSchedule loads the schedule.
@@ -45,13 +54,36 @@ export default function DashboardPage() {
     }
   }, !initialLoad);
 
+  // Resize listener for mobile check
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile(); // Check on initial render
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  // Body scroll lock logic preserving scroll position
+  useEffect(() => {
+    if (!isParkingLotOpen) return;
+    const scrollY = window.scrollY;
+    document.body.style.position = 'fixed';
+    document.body.style.top = `-${scrollY}px`;
+    document.body.style.width = '100%';
+    return () => {
+      document.body.style.position = '';
+      document.body.style.top = '';
+      document.body.style.width = '';
+      window.scrollTo(0, scrollY);
+    };
+  }, [isParkingLotOpen]);
+
   return (
     <div className="flex flex-col md:flex-row h-full w-full gap-4 p-4 overflow-hidden bg-gray-50 dark:bg-gray-900">
       
       {/* Main Timeline Column */}
       <div className="flex-[2] flex flex-col min-w-0 h-full bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden">
         <header className="p-4 border-b border-gray-200 dark:border-gray-700 font-semibold text-lg text-gray-800 dark:text-gray-100 flex justify-between items-center">
-          <h2>Today's Plan</h2>
+          <h2>{view === 'schedule' ? 'Schedule' : "Today's Plan"}</h2>
           {isLoading && !initialLoad && (
             <span className="text-xs text-brand-500 animate-pulse">Syncing...</span>
           )}
@@ -75,11 +107,34 @@ export default function DashboardPage() {
       </div>
 
       {/* Parking Lot / Insights Column */}
-      <aside className="flex-1 flex flex-col min-w-0 h-full bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden border-l border-gray-200 dark:border-gray-700">
-        <React.Suspense fallback={<div className="p-4">Loading Parking Lot...</div>}>
-           <ParkingLotPanel />
-        </React.Suspense>
-      </aside>
+      {view === 'dashboard' && !isMobile && (
+        <aside className="hidden md:flex flex-1 flex-col min-w-0 h-full bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden border-l border-gray-200 dark:border-gray-700">
+          <React.Suspense fallback={<div className="p-4">Loading Parking Lot...</div>}>
+            <ParkingLotPanel />
+          </React.Suspense>
+        </aside>
+      )}
+
+      {/* Mobile FAB */}
+      {view === 'dashboard' && isMobile && (
+        <button
+          type="button"
+          aria-label="Open Parking Lot"
+          aria-expanded={isParkingLotOpen}
+          aria-controls="parking-sheet"
+          aria-haspopup="dialog"
+          onClick={() => openModal({ name: 'parking-lot', data: null })}
+          className="flex items-center justify-center w-14 h-14 bg-accent-primary text-white rounded-full shadow-lg hover:bg-accent-primary-hover transition-colors"
+          style={{
+            position: 'fixed',
+            bottom: 'calc(var(--nav-h) + var(--sab) + 16px)',
+            right: '16px',
+            zIndex: 'var(--z-fab)',
+          }}
+        >
+          <Archive size={24} />
+        </button>
+      )}
 
     </div>
   );

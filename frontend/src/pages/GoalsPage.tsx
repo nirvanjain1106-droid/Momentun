@@ -44,7 +44,7 @@ export default function GoalsPage() {
         ) : (
           <div className="space-y-4">
             {activeGoals.map((goal, index) => (
-              <div key={goal.id} className="glass-panel p-5 flex items-center justify-between group">
+              <div key={goal.id} className="surface-card p-5 flex items-center justify-between group">
                 <div className="flex items-center gap-4">
                   <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-lg
                     ${index === 0 ? 'bg-rank-1/20 text-rank-1' : index === 1 ? 'bg-rank-2/20 text-rank-2' : 'bg-rank-3/20 text-rank-3'}
@@ -53,11 +53,11 @@ export default function GoalsPage() {
                   </div>
                   <div>
                     <h3 className="font-semibold text-lg text-text-primary">{goal.title}</h3>
-                    <p className="text-sm text-text-secondary capitalize">{goal.goal_type} • {goal.progress_pct}% completed</p>
+                    <p className="text-sm text-text-secondary capitalize">{goal.type} • {goal.progress_percentage}% completed</p>
                   </div>
                 </div>
                 
-                <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="flex items-center gap-2 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                   <button onClick={() => pauseGoal(goal.id)} className="p-2 text-text-muted hover:text-warning transition-colors" title="Pause target">
                     <Pause size={18} />
                   </button>

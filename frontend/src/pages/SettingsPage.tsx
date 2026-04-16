@@ -1,10 +1,18 @@
 import { useState } from 'react';
 import { useAuthStore } from '../stores/authStore';
-import { User, Shield, Power, MessageSquare, LogOut, ChevronRight } from 'lucide-react';
+import { useUIStore } from '../stores/uiStore';
+import { client } from '../api/client';
+import { User, Shield, Power, MessageSquare, LogOut, ChevronRight, Download } from 'lucide-react';
 
 export default function SettingsPage() {
   const { logout, userName } = useAuthStore();
+  const { addToast, openModal } = useUIStore();
   const [activeTab, setActiveTab] = useState<'profile' | 'security' | 'account' | 'feedback'>('profile');
+
+  // Form states
+  const [passwordForm, setPasswordForm] = useState({ current: '', new_password: '' });
+  const [feedback, setFeedback] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleLogout = async () => {
     try {
@@ -12,6 +20,73 @@ export default function SettingsPage() {
     } catch {
        // logout handles redirect internally
     }
+  };
+
+  const handlePasswordChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!passwordForm.current || !passwordForm.new_password) {
+      addToast({ type: 'warning', message: 'Please fill out both fields' });
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      await client.post('/users/me/change-password', {
+        old_password: passwordForm.current,
+        new_password: passwordForm.new_password
+      });
+      addToast({ type: 'success', message: 'Password updated successfully' });
+      setPasswordForm({ current: '', new_password: '' });
+    } catch (err: any) {
+      addToast({ type: 'error', message: err.message || 'Failed to update password' });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleFeedbackSubmit = async () => {
+    if (!feedback.trim()) return;
+    setIsSubmitting(true);
+    try {
+      await client.post('/users/me/feedback', { message: feedback });
+      addToast({ type: 'success', message: 'Thank you for your feedback!' });
+      setFeedback('');
+    } catch (err: any) {
+      addToast({ type: 'error', message: err.message || 'Failed to submit feedback' });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleExportData = async () => {
+    try {
+      const res = await client.get('/users/me/export', { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', 'momentum_export.json');
+      document.body.appendChild(link);
+      link.click();
+      link.parentNode?.removeChild(link);
+    } catch (err: any) {
+      addToast({ type: 'error', message: 'Failed to export data' });
+    }
+  };
+
+  const handleDeleteAccount = () => {
+    openModal({
+      name: 'confirm-delete',
+      data: {
+        title: 'Delete Account',
+        onConfirm: async () => {
+          try {
+            await client.delete('/users/me');
+            await logout();
+          } catch (err: any) {
+            addToast({ type: 'error', message: err.message || 'Failed to delete account' });
+          }
+        }
+      }
+    });
   };
 
   const tabs = [
@@ -59,7 +134,7 @@ export default function SettingsPage() {
         </nav>
 
         {/* Content Pane */}
-        <div className="flex-1 glass-panel p-6 min-h-[400px]">
+        <div className="flex-1 surface-card p-6 min-h-[400px]">
            {activeTab === 'profile' && (
              <div className="space-y-6 animate-in slide-in-from-right-4 duration-300">
                <h2 className="text-xl font-semibold text-text-primary border-b border-border-subtle pb-3">Profile Info</h2>
@@ -78,7 +153,6 @@ export default function SettingsPage() {
                    <label className="block text-sm text-text-secondary mb-1">Timezone</label>
                    <select className="w-full bg-bg-surface border border-border-subtle rounded-lg px-4 py-2 text-text-primary">
                       <option>UTC</option>
-                      {/* More options later */}
                    </select>
                  </div>
                  <button className="bg-primary-500 hover:bg-primary-400 text-white px-4 py-2 rounded-md font-medium transition-colors">
@@ -89,10 +163,33 @@ export default function SettingsPage() {
            )}
 
            {activeTab === 'security' && (
-             <div className="space-y-6 animate-in slide-in-from-right-4 duration-300">
+             <form onSubmit={handlePasswordChange} className="space-y-6 animate-in slide-in-from-right-4 duration-300">
                <h2 className="text-xl font-semibold text-text-primary border-b border-border-subtle pb-3">Security</h2>
-               <p className="text-text-muted">Password change form will go here.</p>
-             </div>
+               
+               <div className="space-y-4 max-w-md">
+                 <div>
+                   <label className="block text-sm text-text-secondary mb-1">Current Password</label>
+                   <input 
+                     type="password"
+                     value={passwordForm.current}
+                     onChange={e => setPasswordForm(p => ({ ...p, current: e.target.value }))}
+                     className="w-full bg-bg-surface border border-border-subtle rounded-lg px-4 py-2 text-text-primary" 
+                   />
+                 </div>
+                 <div>
+                   <label className="block text-sm text-text-secondary mb-1">New Password</label>
+                   <input 
+                     type="password"
+                     value={passwordForm.new_password}
+                     onChange={e => setPasswordForm(p => ({ ...p, new_password: e.target.value }))}
+                     className="w-full bg-bg-surface border border-border-subtle rounded-lg px-4 py-2 text-text-primary" 
+                   />
+                 </div>
+                 <button disabled={isSubmitting} type="submit" className="bg-primary-500 hover:bg-primary-400 text-white px-4 py-2 rounded-md font-medium transition-colors disabled:opacity-50">
+                   Update Password
+                 </button>
+               </div>
+             </form>
            )}
 
            {activeTab === 'account' && (
@@ -105,13 +202,15 @@ export default function SettingsPage() {
                      <h3 className="text-text-primary font-medium">Export Data</h3>
                      <p className="text-sm text-text-muted">Download all your records as JSON</p>
                    </div>
-                   <button className="text-primary-400 font-medium hover:underline">Download</button>
+                   <button onClick={handleExportData} className="text-primary-400 font-medium flex items-center gap-2 hover:underline">
+                     <Download size={16} /> Download
+                   </button>
                  </div>
 
                  <div className="bg-danger/5 p-4 rounded-lg border border-danger/20 flex flex-col items-start">
                    <h3 className="text-danger font-medium mb-1">Danger Zone</h3>
                    <p className="text-sm text-text-muted mb-4">Deleting your account is permanent and cannot be undone.</p>
-                   <button className="bg-danger hover:bg-red-600 text-white px-4 py-2 rounded-md font-medium transition-colors">
+                   <button onClick={handleDeleteAccount} className="bg-danger hover:bg-red-600 text-white px-4 py-2 rounded-md font-medium transition-colors">
                      Delete Account
                    </button>
                  </div>
@@ -124,10 +223,16 @@ export default function SettingsPage() {
                <h2 className="text-xl font-semibold text-text-primary border-b border-border-subtle pb-3">Give Feedback</h2>
                <div className="space-y-4 max-w-lg">
                  <textarea 
+                   value={feedback}
+                   onChange={e => setFeedback(e.target.value)}
                    className="w-full h-32 bg-bg-surface border border-border-subtle rounded-lg px-4 py-3 text-text-primary resize-none focus:outline-none focus:border-primary-500" 
                    placeholder="Tell us what you think or report a bug..."
                  ></textarea>
-                 <button className="bg-primary-500 hover:bg-primary-400 text-white px-4 py-2 rounded-md font-medium transition-colors w-full">
+                 <button 
+                   disabled={isSubmitting || !feedback.trim()}
+                   onClick={handleFeedbackSubmit} 
+                   className="bg-primary-500 hover:bg-primary-400 text-white px-4 py-2 rounded-md font-medium transition-colors w-full disabled:opacity-50"
+                 >
                    Submit Feedback
                  </button>
                </div>

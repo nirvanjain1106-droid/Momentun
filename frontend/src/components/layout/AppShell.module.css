@@ -1,6 +1,7 @@
 .appContainer {
   display: flex;
   height: 100vh;
+  height: 100dvh;
   width: 100vw;
   overflow: hidden;
   background-color: var(--bg-primary);
@@ -9,9 +10,12 @@
 .mainContent {
   flex: 1;
   height: 100vh;
+  height: 100dvh;
   overflow-y: auto;
+  overscroll-behavior-y: contain;
   padding: var(--spacing-4);
-  padding-bottom: 80px; /* Space for bottom nav on mobile */
+  padding-top: calc(var(--spacing-4) + var(--sat));
+  padding-bottom: calc(var(--nav-h) + var(--sab) + var(--spacing-4));
   position: relative;
 }
 
@@ -19,6 +23,8 @@
 @media (min-width: 768px) {
   .mainContent {
     padding: var(--spacing-8);
+    padding-top: var(--spacing-8);
     padding-bottom: var(--spacing-8);
   }
 }
+

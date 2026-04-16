@@ -56,7 +56,12 @@ function App() {
               
               <Route path="/dashboard" element={
                 <ErrorBoundary>
-                  <DashboardPage />
+                  <DashboardPage view="dashboard" />
+                </ErrorBoundary>
+              } />
+              <Route path="/schedule" element={
+                <ErrorBoundary>
+                  <DashboardPage view="schedule" />
                 </ErrorBoundary>
               } />
               <Route path="/goals" element={<GoalsPage />} />

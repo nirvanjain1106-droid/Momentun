@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { client } from '../api/client';
-import { Flame, Calendar, Activity, AlertCircle, LineChart as ChartIcon, TrendingUp, TrendingDown } from 'lucide-react';
+import { Flame, Activity, CheckCircle, TrendingUp, LineChart as ChartIcon } from 'lucide-react';
 import { useUIStore } from '../stores/uiStore';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
@@ -36,7 +36,7 @@ export default function InsightsPage() {
 
   if (isLoading) return <div className="p-8 animate-pulse text-text-muted text-center h-full flex items-center justify-center">Crunching your data...</div>;
 
-  const chartData = weekly?.day_breakdown?.map((day: any) => ({
+  const barData = weekly?.day_breakdown?.map((day: any) => ({
     name: day.weekday.substring(0, 3),
     rate: day.completion_rate || 0,
     fullDate: day.log_date
@@ -51,7 +51,7 @@ export default function InsightsPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Streak Hero Card */}
-        <section className="lg:col-span-2 glass-panel p-8 overflow-hidden relative border-none bg-gradient-to-br from-bg-surface to-bg-primary">
+        <section className="lg:col-span-2 surface-card p-8 overflow-hidden relative border-none bg-gradient-to-br from-bg-surface to-bg-primary">
           <div className="absolute -right-8 -top-8 opacity-10">
              <Flame size={200} className="text-accent-primary" />
           </div>
@@ -68,14 +68,14 @@ export default function InsightsPage() {
              </div>
              {streak?.streak_protected && (
                <div className="bg-accent-primary/10 text-accent-primary border border-accent-primary/20 px-4 py-2 rounded-xl flex items-center gap-2 font-semibold">
-                 <AlertCircle size={16} /> Shield Active
+                 <CheckCircle size={16} /> Shield Active
                </div>
              )}
           </div>
         </section>
 
         {/* Weekly Mini Summary */}
-        <section className="glass-panel p-6 flex flex-col justify-between">
+        <section className="surface-card p-6 flex flex-col justify-between">
           <div>
             <h3 className="text-sm font-bold uppercase tracking-wider text-text-tertiary mb-4">Weekly Snapshot</h3>
             <div className="space-y-4">
@@ -105,11 +105,11 @@ export default function InsightsPage() {
       </div>
 
       {/* Completion Chart */}
-      <section className="glass-panel p-8">
+      <section className="surface-card p-8">
         <div className="flex items-center justify-between mb-8">
           <div>
             <h3 className="text-lg font-bold text-text-primary flex items-center gap-2">
-              <ChartIcon size={20} className="text-accent-primary" /> Velocity Distribution
+              <TrendingUp size={20} className="text-accent-primary" /> Velocity Distribution
             </h3>
             <p className="text-xs text-text-tertiary italic mt-0.5">Completion percentages across the current week.</p>
           </div>
@@ -120,7 +120,7 @@ export default function InsightsPage() {
         
         <div className="h-[300px] w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+            <BarChart data={barData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
               <XAxis 
                 dataKey="name" 
@@ -146,7 +146,7 @@ export default function InsightsPage() {
                 itemStyle={{ color: 'var(--text-primary)', fontWeight: 600 }}
               />
               <Bar dataKey="rate" radius={[6, 6, 0, 0]} barSize={40}>
-                {chartData.map((entry, index) => (
+                {barData.map((entry: any, index: number) => (
                   <Cell 
                     key={`cell-${index}`} 
                     fill={entry.rate >= 80 ? 'var(--accent-primary)' : entry.rate >= 50 ? 'rgba(var(--accent-primary-rgb), 0.6)' : 'rgba(var(--accent-primary-rgb), 0.3)'} 
@@ -160,7 +160,7 @@ export default function InsightsPage() {
 
       {/* Trajectory & Patterns */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <section className="glass-panel p-6">
+        <section className="surface-card p-6">
            <h3 className="font-bold text-text-primary flex items-center gap-2 mb-6">
              <Activity size={18} className="text-accent-primary" /> Behavioral Patterns
            </h3>
@@ -183,7 +183,7 @@ export default function InsightsPage() {
            </div>
         </section>
 
-        <section className="glass-panel p-6">
+        <section className="surface-card p-6">
            <h3 className="font-bold text-text-primary flex items-center gap-2 mb-6">
              <ChartIcon size={18} className="text-success" /> Goal Trajectory
            </h3>

@@ -14,7 +14,8 @@ interface TaskReviewState {
 
 export default function EveningReviewPage() {
   const navigate = useNavigate();
-  const { todaySchedule, fetchTodaySchedule } = useScheduleStore();
+  const { schedule, isLoading } = useScheduleStore();
+  const fetchTodaySchedule = useScheduleStore(s => s.fetchSchedule);
   const [step, setStep] = useState(1);
   const [mood, setMood] = useState(3);
   const [note, setNote] = useState('');
@@ -25,10 +26,12 @@ export default function EveningReviewPage() {
     fetchTodaySchedule();
   }, [fetchTodaySchedule]);
 
+  const reviewTasks = schedule?.tasks || [];
+
   useEffect(() => {
-    if (todaySchedule?.tasks) {
+    if (reviewTasks) {
       const initialReviews: Record<string, TaskReviewState> = {};
-      todaySchedule.tasks.forEach(task => {
+      reviewTasks.forEach(task => {
         initialReviews[task.id] = {
           task_id: task.id,
           status: 'completed',
@@ -38,7 +41,7 @@ export default function EveningReviewPage() {
       });
       setReviews(initialReviews);
     }
-  }, [todaySchedule]);
+  }, [reviewTasks]);
 
   const updateTaskReview = (taskId: string, patch: Partial<TaskReviewState>) => {
     setReviews(prev => ({
@@ -64,7 +67,7 @@ export default function EveningReviewPage() {
     }
   };
 
-  if (!todaySchedule) return <div className="p-8 text-center animate-pulse">Loading today's schedule...</div>;
+  if (isLoading) return <div className="p-8 text-center animate-pulse">Loading today's schedule...</div>;
 
   return (
     <div className="min-h-[85vh] max-w-2xl mx-auto p-6 animate-in fade-in duration-500 pb-24">
@@ -84,12 +87,12 @@ export default function EveningReviewPage() {
           <h2 className="text-sm font-bold uppercase tracking-widest text-text-tertiary px-2">Task Verification</h2>
           
           <div className="space-y-4">
-            {todaySchedule.tasks.map(task => {
+            {reviewTasks.map((task: any) => {
               const review = reviews[task.id];
               if (!review) return null;
 
               return (
-                <div key={task.id} className="glass-panel p-6 space-y-4 border-l-4 border-accent-primary">
+                <div key={task.id} className="surface-card p-6 space-y-4 border-l-4 border-accent-primary">
                   <div className="flex justify-between items-start">
                     <div>
                       <h3 className="font-bold text-lg text-text-primary">{task.title}</h3>
@@ -155,7 +158,7 @@ export default function EveningReviewPage() {
 
       {step === 2 && (
         <div className="space-y-8 animate-in slide-in-from-right-12 duration-500">
-          <section className="glass-panel p-8 text-center bg-gradient-to-b from-bg-surface to-bg-primary">
+          <section className="surface-card p-8 text-center bg-gradient-to-b from-bg-surface to-bg-primary">
             <h2 className="text-xl font-bold text-text-primary mb-6">How was your overall intensity?</h2>
             
             <div className="flex justify-between items-center max-w-sm mx-auto mb-8">

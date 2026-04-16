@@ -9,7 +9,7 @@ import classes from './NewGoalModal.module.css';
 
 const goalSchema = z.object({
   title: z.string().min(3, 'Goal title must be at least 3 characters'),
-  goal_type: z.enum(['exam', 'fitness', 'skill', 'project', 'habit', 'other']),
+  type: z.enum(['exam', 'fitness', 'skill', 'project', 'habit', 'other']),
   target_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD'),
   description: z.string().optional(),
   motivation: z.string().optional(),
@@ -30,22 +30,18 @@ export const NewGoalModal: React.FC = () => {
   } = useForm<GoalFormData>({
     resolver: zodResolver(goalSchema),
     defaultValues: {
-      goal_type: 'project',
+      type: 'project',
       target_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 1 week from now
     },
   });
 
   const onSubmit = async (data: GoalFormData) => {
     try {
-      const result = await createGoal(data);
-      if (result.ok) {
-        addToast({ type: 'success', message: 'Goal created successfully!' });
-        closeModal();
-      } else {
-        addToast({ type: 'error', message: result.error?.message || 'Failed to create goal' });
-      }
-    } catch (error) {
-      addToast({ type: 'error', message: 'An unexpected error occurred' });
+      await createGoal({ ...data, description: data.description || '' });
+      addToast({ type: 'success', message: 'Goal created successfully!' });
+      closeModal();
+    } catch (error: any) {
+      addToast({ type: 'error', message: error.message || 'An unexpected error occurred' });
     }
   };
 
@@ -85,7 +81,7 @@ export const NewGoalModal: React.FC = () => {
           <div className={classes.row}>
             <div className={classes.inputGroup}>
               <label className={classes.label}>Category</label>
-              <select {...register('goal_type')} className={classes.select}>
+              <select {...register('type')} className={classes.select}>
                 <option value="exam">🎓 Exam</option>
                 <option value="fitness">💪 Fitness</option>
                 <option value="skill">🧠 Skill</option>

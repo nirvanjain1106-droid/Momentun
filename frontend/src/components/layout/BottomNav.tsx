@@ -7,6 +7,7 @@ export const BottomNav = () => {
     <nav className={classes.bottomNav}>
       <NavLink 
         to="/dashboard" 
+        aria-label="Home"
         className={({ isActive }) => `${classes.navItem} ${isActive ? classes.active : ''}`}
       >
         <Home size={24} />
@@ -14,13 +15,15 @@ export const BottomNav = () => {
       
       <NavLink 
         to="/goals" 
+        aria-label="Goals"
         className={({ isActive }) => `${classes.navItem} ${isActive ? classes.active : ''}`}
       >
         <Target size={24} />
       </NavLink>
       
       <NavLink 
-        to="/dashboard" 
+        to="/schedule" 
+        aria-label="Schedule"
         className={({ isActive }) => `${classes.navItem} ${isActive ? classes.active : ''}`}
       >
         <Calendar size={24} />
@@ -28,6 +31,7 @@ export const BottomNav = () => {
 
       <NavLink 
         to="/insights" 
+        aria-label="Insights"
         className={({ isActive }) => `${classes.navItem} ${isActive ? classes.active : ''}`}
       >
         <BarChart2 size={24} />

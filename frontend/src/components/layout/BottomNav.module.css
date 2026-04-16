@@ -7,13 +7,12 @@
   height: 64px;
   background-color: var(--bg-secondary);
   border-top: 1px solid var(--border-color);
-  z-index: 100;
+  z-index: var(--z-bottom-nav);
   justify-content: space-around;
   align-items: center;
-  /* Glass effect for iOS feel */
-  background: rgba(26, 29, 36, 0.85);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  padding-bottom: max(12px, var(--sab));
+  padding-left: var(--sal);
+  padding-right: var(--sar);
 }
 
 @media (min-width: 768px) {
@@ -32,6 +31,8 @@
   padding: var(--spacing-2);
   border-radius: var(--border-radius-lg);
   transition: all var(--transition-fast);
+  min-height: 48px;
+  min-width: 48px;
 }
 
 .navItem.active {

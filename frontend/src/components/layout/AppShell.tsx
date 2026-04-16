@@ -5,6 +5,8 @@ import { BottomNav } from './BottomNav.tsx';
 import { ModalController } from './ModalController.tsx';
 import classes from './AppShell.module.css';
 import { useAuthStore } from '../../stores/authStore';
+import { OfflineBanner } from '../ui/OfflineBanner';
+import { ToastContainer } from '../ui/ToastContainer';
 
 interface AppShellProps {
   children: ReactNode;
@@ -21,6 +23,8 @@ export const AppShell = ({ children }: AppShellProps) => {
 
   return (
     <div className={classes.appContainer}>
+      <OfflineBanner />
+      <ToastContainer />
       <ModalController />
       <Sidebar />
       <main className={`${classes.mainContent} no-scrollbar`}>

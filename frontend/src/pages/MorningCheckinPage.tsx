@@ -40,7 +40,7 @@ export default function MorningCheckinPage() {
         </div>
 
         {step === 1 && (
-          <div className="glass-panel p-8 text-center animate-in slide-in-from-bottom-4 duration-500">
+          <div className="surface-card p-8 text-center animate-in slide-in-from-bottom-4 duration-500">
             <h2 className="text-2xl font-bold text-text-primary mb-6">How are your energy levels this morning?</h2>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -64,7 +64,7 @@ export default function MorningCheckinPage() {
         )}
 
         {step === 2 && (
-          <div className="glass-panel p-8 text-center animate-in slide-in-from-right-8 duration-500">
+          <div className="surface-card p-8 text-center animate-in slide-in-from-right-8 duration-500">
             <h2 className="text-2xl font-bold text-text-primary mb-6">How did yesterday go?</h2>
             
             <div className="space-y-3">
@@ -88,7 +88,7 @@ export default function MorningCheckinPage() {
         )}
 
         {step === 3 && (
-          <div className="glass-panel p-8 text-center animate-in slide-in-from-right-8 duration-500">
+          <div className="surface-card p-8 text-center animate-in slide-in-from-right-8 duration-500">
             <h2 className="text-2xl font-bold text-text-primary mb-6">Any surprise events yesterday?</h2>
             
             <div className="space-y-3 mb-6 max-h-60 overflow-y-auto no-scrollbar pb-2">

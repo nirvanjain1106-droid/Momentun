@@ -46,7 +46,7 @@ export default function LoginPage() {
       <div className={classes.decorativeOrb1} />
       <div className={classes.decorativeOrb2} />
       
-      <div className={`glass-panel ${classes.authCard}`}>
+      <div className={`surface-card ${classes.authCard}`}>
         <div className={classes.header}>
           <div className={classes.logoMark} />
           <h1>Welcome Back</h1>
