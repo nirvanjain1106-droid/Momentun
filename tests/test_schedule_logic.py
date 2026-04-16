@@ -23,11 +23,14 @@ from app.services import schedule_service as schedule_mod
 
 def _make_frozen_datetime(year, month, day, hour, minute, tz_name="UTC"):
     """Create a datetime subclass that freezes now() to a specific time."""
-    from zoneinfo import ZoneInfo
+    from datetime import datetime as real_dt, timezone
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo(tz_name)
+    except Exception:
+        tz = timezone.utc if tz_name == "UTC" else None
 
-    from datetime import datetime as real_dt
-
-    frozen = real_dt(year, month, day, hour, minute, tzinfo=ZoneInfo(tz_name))
+    frozen = real_dt(year, month, day, hour, minute, tzinfo=tz)
 
     class FrozenDT(real_dt):
         @classmethod

@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthGate } from './components/layout/AuthGate';
 import { AppShell } from './components/layout/AppShell';
+import { ErrorBoundary } from './components/layout/ErrorBoundary';
 import { ChunkLoadError } from './components/ui/ChunkLoadError';
 import { PageSkeleton } from './components/ui/PageSkeleton';
 import { useUIStore } from './stores/uiStore';
@@ -19,7 +20,12 @@ const lazyWithFallback = (importFn: LazyImport) =>
   })));
 
 const DashboardPage = lazyWithFallback(() => import('./pages/DashboardPage'));
-// We will add more lazy pages as we build them
+const GoalsPage = lazyWithFallback(() => import('./pages/GoalsPage'));
+const GoalDetailPage = lazyWithFallback(() => import('./pages/GoalDetailPage'));
+const InsightsPage = lazyWithFallback(() => import('./pages/InsightsPage'));
+const SettingsPage = lazyWithFallback(() => import('./pages/SettingsPage'));
+const MorningCheckinPage = lazyWithFallback(() => import('./pages/MorningCheckinPage'));
+const EveningReviewPage = lazyWithFallback(() => import('./pages/EveningReviewPage'));
 
 function App() {
   const { setOffline } = useUIStore();
@@ -48,7 +54,17 @@ function App() {
               <Route path="/request-password" element={<RequestPasswordPage />} />
               <Route path="/reset-password" element={<ResetPasswordPage />} />
               
-              <Route path="/dashboard" element={<DashboardPage />} />
+              <Route path="/dashboard" element={
+                <ErrorBoundary>
+                  <DashboardPage />
+                </ErrorBoundary>
+              } />
+              <Route path="/goals" element={<GoalsPage />} />
+              <Route path="/goals/:goalId" element={<GoalDetailPage />} />
+              <Route path="/insights" element={<InsightsPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/checkin/morning" element={<MorningCheckinPage />} />
+              <Route path="/checkin/evening" element={<EveningReviewPage />} />
               
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
               <Route path="*" element={<Navigate to="/" replace />} />

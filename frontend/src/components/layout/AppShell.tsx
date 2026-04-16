@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Sidebar } from './Sidebar.tsx';
 import { BottomNav } from './BottomNav.tsx';
+import { ModalController } from './ModalController.tsx';
 import classes from './AppShell.module.css';
 import { useAuthStore } from '../../stores/authStore';
 
@@ -20,6 +21,7 @@ export const AppShell = ({ children }: AppShellProps) => {
 
   return (
     <div className={classes.appContainer}>
+      <ModalController />
       <Sidebar />
       <main className={`${classes.mainContent} no-scrollbar`}>
         {children}

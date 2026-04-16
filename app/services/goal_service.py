@@ -468,7 +468,7 @@ async def _mark_today_schedule_stale(
             await db.flush()
     except Exception:
         # Never fail the main operation for stale marking
-        logger.warning("stale_marking_failed", extra={"user_id": str(user_id)})
+        logger.exception("stale_marking_failed", extra={"user_id": str(user_id)})
 
 
 async def _get_goal_progress(goal_id: uuid.UUID, db: AsyncSession) -> dict:

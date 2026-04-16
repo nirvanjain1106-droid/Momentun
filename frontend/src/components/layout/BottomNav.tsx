@@ -20,7 +20,7 @@ export const BottomNav = () => {
       </NavLink>
       
       <NavLink 
-        to="/schedule" 
+        to="/dashboard" 
         className={({ isActive }) => `${classes.navItem} ${isActive ? classes.active : ''}`}
       >
         <Calendar size={24} />

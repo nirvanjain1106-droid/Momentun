@@ -3,7 +3,7 @@
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Query, Request, Header
 from app.config import settings
 from app.core.rate_limit import limiter
 from app.core.dependencies import CurrentUserComplete, DB
@@ -16,15 +16,18 @@ from app.schemas.tasks import (
     ParkedTasksListResponse,
     BulkDeleteResponse,
     QuickAddRequest,
+    TaskMutationResponse,
 )
-from app.services import task_service
+from app.services import task_service, user_service, insights_service
+from app.services.idempotency_service import IdempotencyService
+from app.core.timezone import get_user_today
 
 router = APIRouter(prefix="/tasks", tags=["Tasks"])
 
 
-@router.patch(
+@router.post(
     "/{task_id}/complete",
-    response_model=TaskDetailResponse,
+    response_model=TaskMutationResponse,
     summary="Mark a task as completed",
     description=(
         "Mark a task as done in real time during the day. "
@@ -39,13 +42,32 @@ async def complete_task(
     data: TaskCompleteRequest,
     current_user: CurrentUserComplete,
     db: DB,
-) -> TaskDetailResponse:
-    return await task_service.complete_task(current_user.id, task_id, data, db)
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
+) -> TaskMutationResponse:
+    if idempotency_key:
+        cached = await IdempotencyService.get_cached_response(db, idempotency_key)
+        if cached:
+            return TaskMutationResponse(**cached.response_body)
+
+    task_res = await task_service.complete_task(current_user.id, task_id, data, db)
+    
+    today = get_user_today(current_user.timezone)
+    day_score = await user_service.calculate_day_score(current_user.id, today, db)
+    streak = await insights_service.get_streak(current_user, db)
+    
+    response_data = TaskMutationResponse(task=task_res, day_score=day_score, streak=streak)
+    
+    if idempotency_key:
+        await IdempotencyService.save_response(
+            db, idempotency_key, f"/tasks/{task_id}/complete", response_data.model_dump(mode="json")
+        )
+
+    return response_data
 
 
-@router.patch(
+@router.post(
     "/{task_id}/park",
-    response_model=TaskDetailResponse,
+    response_model=TaskMutationResponse,
     summary="Park a task (move to parking lot)",
     description=(
         "Manually move a task to the parking lot. "
@@ -60,8 +82,27 @@ async def park_task(
     data: TaskParkRequest,
     current_user: CurrentUserComplete,
     db: DB,
-) -> TaskDetailResponse:
-    return await task_service.park_task(current_user.id, task_id, data.reason, db)
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
+) -> TaskMutationResponse:
+    if idempotency_key:
+        cached = await IdempotencyService.get_cached_response(db, idempotency_key)
+        if cached:
+            return TaskMutationResponse(**cached.response_body)
+
+    task_res = await task_service.park_task(current_user.id, task_id, data.reason, db)
+    
+    today = get_user_today(current_user.timezone)
+    day_score = await user_service.calculate_day_score(current_user.id, today, db)
+    streak = await insights_service.get_streak(current_user, db)
+    
+    response_data = TaskMutationResponse(task=task_res, day_score=day_score, streak=streak)
+    
+    if idempotency_key:
+        await IdempotencyService.save_response(
+            db, idempotency_key, f"/tasks/{task_id}/park", response_data.model_dump(mode="json")
+        )
+
+    return response_data
 
 
 @router.post(
@@ -86,9 +127,9 @@ async def reschedule_task(
     )
 
 
-@router.patch(
+@router.post(
     "/{task_id}/undo",
-    response_model=TaskDetailResponse,
+    response_model=TaskMutationResponse,
     summary="Undo last task action",
     description=(
         "Revert the last status change on a task. "
@@ -97,11 +138,31 @@ async def reschedule_task(
     ),
 )
 async def undo_task(
+    request: Request,
     task_id: uuid.UUID,
     current_user: CurrentUserComplete,
     db: DB,
-) -> TaskDetailResponse:
-    return await task_service.undo_task(current_user.id, task_id, db)
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
+) -> TaskMutationResponse:
+    if idempotency_key:
+        cached = await IdempotencyService.get_cached_response(db, idempotency_key)
+        if cached:
+            return TaskMutationResponse(**cached.response_body)
+
+    task_res = await task_service.undo_task(current_user.id, task_id, db)
+    
+    today = get_user_today(current_user.timezone)
+    day_score = await user_service.calculate_day_score(current_user.id, today, db)
+    streak = await insights_service.get_streak(current_user, db)
+    
+    response_data = TaskMutationResponse(task=task_res, day_score=day_score, streak=streak)
+    
+    if idempotency_key:
+        await IdempotencyService.save_response(
+            db, idempotency_key, f"/tasks/{task_id}/undo", response_data.model_dump(mode="json")
+        )
+
+    return response_data
 
 
 @router.get(

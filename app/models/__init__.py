@@ -18,6 +18,7 @@ from app.models.goal import (
     LLMUsageLog,
     Feedback,
 )
+from app.models.idempotency import IdempotencyStore
 
 __all__ = [
     "User",
@@ -36,4 +37,5 @@ __all__ = [
     "DetectedPattern",
     "LLMUsageLog",
     "Feedback",
+    "IdempotencyStore",
 ]

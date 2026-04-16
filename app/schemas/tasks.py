@@ -7,6 +7,9 @@ from datetime import date as date_type
 from pydantic import BaseModel, field_validator
 import re
 
+from app.schemas.users import DayScoreResponse
+from app.schemas.insights import StreakResponse
+
 
 class TaskCompleteRequest(BaseModel):
     """Mark a task as completed in real time."""
@@ -169,3 +172,10 @@ class QuickAddRequest(BaseModel):
         if v < 5 or v > 480:
             raise ValueError("Duration must be between 5 and 480 minutes")
         return v
+
+
+class TaskMutationResponse(BaseModel):
+    """Aggregate response returned after a task mutation."""
+    task: TaskDetailResponse
+    day_score: DayScoreResponse
+    streak: StreakResponse

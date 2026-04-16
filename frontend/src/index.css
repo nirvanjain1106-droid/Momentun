@@ -1,4 +1,43 @@
+@import "tailwindcss";
 @import './styles/variables.css';
+
+@theme {
+  --color-bg-base: #0a0a0f;
+  --color-bg-surface: #12121a;
+  --color-bg-elevated: #1a1a2e;
+  --color-bg-hover: #22223a;
+  --color-border-subtle: #2a2a3e;
+  --color-border-active: #6c5ce7;
+  
+  --color-primary-500: #6c5ce7;
+  --color-primary-400: #a29bfe;
+  --color-primary-300: #d1cdfe;
+  --color-primary-glow: rgba(108, 92, 231, 0.15);
+  
+  --color-accent-500: #00cec9;
+  --color-accent-400: #55efc4;
+  --color-accent-glow: rgba(0, 206, 201, 0.15);
+  
+  --color-success: #00b894;
+  --color-warning: #fdcb6e;
+  --color-danger: #ff6b6b;
+  --color-info: #74b9ff;
+  
+  --color-text-primary: #e8e8f0;
+  --color-text-secondary: #8888a0;
+  --color-text-muted: #55556a;
+  
+  --color-rank-1: #6c5ce7;
+  --color-rank-2: #00cec9;
+  --color-rank-3: #fdcb6e;
+  
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
 
 /* Utility classes or global resets that don't belong in CSS Modules */
 #root {

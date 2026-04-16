@@ -441,10 +441,12 @@ async def _apply_horizon_line(
     """
     try:
         from zoneinfo import ZoneInfo
-    except ImportError:
-        from backports.zoneinfo import ZoneInfo
+        # On Windows without tzdata, ZoneInfo("UTC") fails.
+        tz = ZoneInfo(user_tz)
+    except Exception:
+        tz = timezone.utc if user_tz == "UTC" else None
 
-    now = datetime.now(ZoneInfo(user_tz))
+    now = datetime.now(tz)
     today = now.date()
 
     if schedule.schedule_date != today:
@@ -468,7 +470,7 @@ async def _apply_horizon_line(
             task_end_dt = datetime(
                 today.year, today.month, today.day,
                 int(end_parts[0]), int(end_parts[1]),
-                tzinfo=ZoneInfo(user_tz),
+                tzinfo=tz,
             )
             # Apply grace window
             if now > task_end_dt + timedelta(minutes=HORIZON_GRACE_MINS):

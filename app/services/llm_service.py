@@ -307,7 +307,7 @@ async def _log_llm_usage(
         db.add(log)
         await db.flush()
     except Exception:
-        pass  # Never fail the main flow for logging
+        logger.exception("LLM execution logging failed")  # Never fail the main flow for logging
 
 
 # ─────────────────────────────────────────────────────────────
