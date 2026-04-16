@@ -14,7 +14,6 @@ Using NULL is semantically correct vs the "00:00" magic value.
 
 from typing import Sequence, Union
 from alembic import op
-import sqlalchemy as sa
 
 revision: str = "004_nullable_scheduled_times"
 down_revision: Union[str, None] = "003_preferred_model"

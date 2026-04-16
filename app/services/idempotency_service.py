@@ -1,5 +1,4 @@
 from datetime import datetime, timedelta
-import json
 from typing import Optional, Any, Dict
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
