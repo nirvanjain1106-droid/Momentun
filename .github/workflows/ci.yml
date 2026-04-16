@@ -26,7 +26,6 @@ jobs:
 
       - name: Dependency vulnerability scan
         run: pip-audit --strict
-        continue-on-error: true  # advisory — don't block CI on known-but-unpatched vulns
 
       - name: Run tests with coverage
         env:
