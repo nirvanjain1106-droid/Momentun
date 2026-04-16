@@ -30,8 +30,6 @@ export default function DashboardPage({ view = 'dashboard' }: DashboardPageProps
           fetchSchedule()
           // Optionally add insights / day-score fetch here if needed later
         ]);
-      } catch (err) {
-        throw err; // Send to ErrorBoundary if completely fatal and no IDB
       } finally {
         setInitialLoad(false);
       }

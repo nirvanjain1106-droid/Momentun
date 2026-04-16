@@ -60,7 +60,7 @@ export function TaskCard({ task }: { task: TaskDetail }) {
       {/* Node on timeline */}
       <div className="absolute left-[3.25rem] top-4 w-3 h-3 rounded-full bg-white border-2 border-gray-300 dark:border-gray-600 dark:bg-gray-800 z-10 
         shadow-[0_0_0_4px_var(--bg-color)]" 
-        style={{ '--bg-color': 'rgb(249 250 251)' } as any} 
+        style={{ '--bg-color': 'rgb(249 250 251)' } as React.CSSProperties} 
       />
 
       {/* Card Content */}

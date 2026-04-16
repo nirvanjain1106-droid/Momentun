@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { client } from '../../api/client';
+import { getErrorMessage } from '../../lib/errorUtils';
 import { useUIStore } from '../../stores/uiStore';
 import classes from '../Onboarding.module.css';
 import { Loader2, CheckCircle } from 'lucide-react';
@@ -41,10 +42,10 @@ export const GoalSetupForm = ({ onComplete }: GoalSetupFormProps) => {
       // Important: this hits the /onboarding/goal endpoint which completes onboarding server-side
       // We will let the parent handle the store update and redirection.
       onComplete();
-    } catch (error: any) {
+    } catch (error: unknown) {
       addToast({
         type: 'error',
-        message: error.response?.data?.detail || 'Failed to establish your first goal.',
+        message: getErrorMessage(error, 'Failed to establish your first goal.'),
       });
     } finally {
       setLoading(false);

@@ -12,7 +12,7 @@ import RegisterPage from './pages/RegisterPage';
 import RequestPasswordPage from './pages/RequestPasswordPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
 
-type LazyImport = () => Promise<{ default: React.ComponentType<any> }>;
+type LazyImport = () => Promise<{ default: React.ComponentType<Record<string, unknown>> }>;
 
 const lazyWithFallback = (importFn: LazyImport) =>
   lazy(() => importFn().catch(() => ({

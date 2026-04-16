@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import { useUIStore } from '../stores/uiStore';
 import { client, setAccessToken } from '../api/client';
+import { getErrorMessage } from '../lib/errorUtils';
 import classes from './Auth.module.css';
 import { Loader2 } from 'lucide-react';
 
@@ -31,10 +32,10 @@ export default function LoginPage() {
       } else {
         navigate('/onboarding');
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       addToast({
         type: 'error',
-        message: error.response?.data?.detail || 'Login failed. Please check your credentials.',
+        message: getErrorMessage(error, 'Login failed. Please check your credentials.'),
       });
     } finally {
       setLoading(false);

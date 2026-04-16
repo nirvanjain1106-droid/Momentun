@@ -33,6 +33,8 @@ export function useExponentialBackoff(
     return Math.max(config.initialDelay, Math.min(next, config.maxDelay));
   }, [config.factor, config.initialDelay, config.jitterPct, config.maxDelay]);
 
+  const tickRef = useRef<() => void>(() => {});
+
   const scheduleNext = useCallback(() => {
     if (timeoutIdRef.current) {
       clearTimeout(timeoutIdRef.current);
@@ -42,7 +44,7 @@ export function useExponentialBackoff(
         // Paused if hidden, check again in a bit
         scheduleNext();
       } else {
-        tick();
+        tickRef.current();
       }
     }, currentDelayRef.current);
   }, []);
@@ -61,6 +63,11 @@ export function useExponentialBackoff(
       }
     }
   }, [isActive, calculateNextDelay, scheduleNext, config.initialDelay]);
+
+  // Keep tickRef in sync to break scheduleNext↔tick circular dep
+  useEffect(() => {
+    tickRef.current = tick;
+  }, [tick]);
 
   useEffect(() => {
     if (isActive) {

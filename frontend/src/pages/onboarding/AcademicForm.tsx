@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { client } from '../../api/client';
+import { getErrorMessage } from '../../lib/errorUtils';
 import { useUIStore } from '../../stores/uiStore';
 import classes from '../Onboarding.module.css';
 import { Loader2, ArrowRight } from 'lucide-react';
@@ -44,10 +45,10 @@ export const AcademicForm = ({ onComplete }: AcademicFormProps) => {
       });
       
       onComplete();
-    } catch (error: any) {
+    } catch (error: unknown) {
       addToast({
         type: 'error',
-        message: error.response?.data?.detail || 'Failed to save academic profile format',
+        message: getErrorMessage(error, 'Failed to save academic profile format'),
       });
     } finally {
       setLoading(false);

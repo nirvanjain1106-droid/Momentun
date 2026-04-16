@@ -1,9 +1,10 @@
 import { create } from 'zustand';
+import type { Goal } from './goalStore';
 
 export type ModalPayload =
   | { name: 'quick-add'; data: null }
   | { name: 'new-goal'; data: null }
-  | { name: 'edit-goal'; data: any } // We'll type this later as GoalDetailResponse
+  | { name: 'edit-goal'; data: Goal }
   | { name: 'confirm-delete'; data: { title: string; onConfirm: () => void } }
   | { name: 'parking-lot'; data: null };
 

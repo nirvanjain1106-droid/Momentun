@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { client } from '../../api/client';
+import { getErrorMessage } from '../../lib/errorUtils';
 import { useUIStore } from '../../stores/uiStore';
 import classes from '../Onboarding.module.css';
 import { Loader2, ArrowRight, Plus, Trash2 } from 'lucide-react';
@@ -85,10 +86,10 @@ export const FixedBlockEditor = ({ onComplete }: FixedBlockEditorProps) => {
         blocks: formattedBlocks
       });
       onComplete();
-    } catch (error: any) {
+    } catch (error: unknown) {
       addToast({
         type: 'error',
-        message: error.response?.data?.detail || 'Failed to save fixed blocks',
+        message: getErrorMessage(error, 'Failed to save fixed blocks'),
       });
     } finally {
       setLoading(false);

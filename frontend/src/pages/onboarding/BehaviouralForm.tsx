@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { client } from '../../api/client';
+import { getErrorMessage } from '../../lib/errorUtils';
 import { useUIStore } from '../../stores/uiStore';
 import classes from '../Onboarding.module.css';
 import { Loader2, ArrowRight, Sun, Moon, Sunrise } from 'lucide-react';
@@ -57,10 +58,10 @@ export const BehaviouralForm = ({ onComplete }: BehaviouralFormProps) => {
         light_days: formData.light_days
       });
       onComplete();
-    } catch (error: any) {
+    } catch (error: unknown) {
       addToast({
         type: 'error',
-        message: error.response?.data?.detail || 'Failed to save behavioural profile',
+        message: getErrorMessage(error, 'Failed to save behavioural profile'),
       });
     } finally {
       setLoading(false);

@@ -64,8 +64,8 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
       }
 
       set({ schedule: data, isLoading: false });
-    } catch (error: any) {
-      if (error.name === 'AbortError') {
+    } catch (error: unknown) {
+      if (error instanceof Error && error.name === 'AbortError') {
         set({ error: 'Request timed out. Please try again.', isLoading: false });
         throw error;
       }
@@ -75,7 +75,8 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
       if (cached) {
         set({ schedule: cached, isLoading: false, error: 'Offline mode: Showing cached data.' });
       } else {
-        set({ error: error.message || 'Failed to fetch schedule', isLoading: false });
+        const msg = error instanceof Error ? error.message : 'Failed to fetch schedule';
+        set({ error: msg, isLoading: false });
         throw error; // Let ErrorBoundary handle it if needed
       }
     }
@@ -182,10 +183,11 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
       });
       get().removePatch(taskId);
       
-    } catch (error: any) {
+    } catch (error: unknown) {
       // 4. Rollback Failure
       get().rollbackPatch(taskId);
-      set({ error: `Failed to complete task: ${error.message || 'Network error'}` });
+      const msg = error instanceof Error ? error.message : 'Network error';
+      set({ error: `Failed to complete task: ${msg}` });
     }
   },
 
@@ -244,9 +246,10 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
       });
       get().removePatch(taskId);
       
-    } catch (error: any) {
+    } catch (error: unknown) {
       get().rollbackPatch(taskId);
-      set({ error: `Failed to park task: ${error.message || 'Network error'}` });
+      const msg = error instanceof Error ? error.message : 'Network error';
+      set({ error: `Failed to park task: ${msg}` });
     }
   },
 
@@ -319,9 +322,10 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
       });
       get().removePatch(taskId);
       
-    } catch (error: any) {
+    } catch (error: unknown) {
       get().rollbackPatch(taskId);
-      set({ error: `Failed to undo task action: ${error.message || 'Network error'}` });
+      const msg = error instanceof Error ? error.message : 'Network error';
+      set({ error: `Failed to undo task action: ${msg}` });
     }
   },
 }));

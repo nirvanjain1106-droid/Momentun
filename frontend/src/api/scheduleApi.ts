@@ -28,7 +28,7 @@ export interface DayScore {
   timing_score: number;
   core_tasks_score: number;
   streak_bonus: number;
-  breakdown: Record<string, any>;
+  breakdown: Record<string, unknown>;
 }
 
 export interface StreakInfo {
@@ -53,7 +53,12 @@ export interface ScheduleResponse {
   unassigned_parked_tasks: TaskDetail[];
 }
 
-const withIdempotency = (config: Record<string, any> = {}) => ({
+interface RequestConfig {
+  signal?: AbortSignal;
+  headers?: Record<string, string>;
+}
+
+const withIdempotency = (config: RequestConfig = {}) => ({
   ...config,
   headers: {
     ...config.headers,

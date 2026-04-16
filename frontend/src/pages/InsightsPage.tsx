@@ -4,9 +4,44 @@ import { Flame, Activity, CheckCircle, TrendingUp, LineChart as ChartIcon } from
 import { useUIStore } from '../stores/uiStore';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
+interface StreakData {
+  current_streak: number;
+  best_streak: number;
+  streak_protected: boolean;
+  last_active_date: string | null;
+}
+
+interface DayBreakdown {
+  log_date: string;
+  weekday: string;
+  completion_rate: number;
+}
+
+interface Pattern {
+  pattern_type: string;
+  insight: string;
+  fix: string;
+}
+
+interface WeeklyData {
+  completion_rate: number;
+  total_tasks: number;
+  completed_tasks: number;
+  tasks_completed: number;
+  tasks_scheduled: number;
+  top_category: string | null;
+  best_day: string | null;
+  day_breakdown: DayBreakdown[];
+  patterns: Pattern[];
+  recommendation: string | null;
+  trajectory: { projection: string } | null;
+  motivational_nudge: string | null;
+  coaching_note: string | null;
+}
+
 export default function InsightsPage() {
-  const [streak, setStreak] = useState<any>(null);
-  const [weekly, setWeekly] = useState<any>(null);
+  const [streak, setStreak] = useState<StreakData | null>(null);
+  const [weekly, setWeekly] = useState<WeeklyData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -22,7 +57,7 @@ export default function InsightsPage() {
           setStreak(streakRes.data);
           setWeekly(weeklyRes.data);
         }
-      } catch (error) {
+      } catch {
         if (!ignore) {
           useUIStore.getState().addToast({ type: 'error', message: 'Failed to load insights.' });
         }
@@ -36,7 +71,7 @@ export default function InsightsPage() {
 
   if (isLoading) return <div className="p-8 animate-pulse text-text-muted text-center h-full flex items-center justify-center">Crunching your data...</div>;
 
-  const barData = weekly?.day_breakdown?.map((day: any) => ({
+  const barData = weekly?.day_breakdown?.map((day: DayBreakdown) => ({
     name: day.weekday.substring(0, 3),
     rate: day.completion_rate || 0,
     fullDate: day.log_date
@@ -146,7 +181,7 @@ export default function InsightsPage() {
                 itemStyle={{ color: 'var(--text-primary)', fontWeight: 600 }}
               />
               <Bar dataKey="rate" radius={[6, 6, 0, 0]} barSize={40}>
-                {barData.map((entry: any, index: number) => (
+                {barData.map((entry: { rate: number; name: string; fullDate: string }, index: number) => (
                   <Cell 
                     key={`cell-${index}`} 
                     fill={entry.rate >= 80 ? 'var(--accent-primary)' : entry.rate >= 50 ? 'rgba(var(--accent-primary-rgb), 0.6)' : 'rgba(var(--accent-primary-rgb), 0.3)'} 
@@ -166,7 +201,7 @@ export default function InsightsPage() {
            </h3>
            <div className="space-y-4">
               {weekly?.patterns && weekly.patterns.length > 0 ? (
-                weekly.patterns.map((p: any, i: number) => (
+                weekly.patterns.map((p: Pattern, i: number) => (
                   <div key={i} className="p-4 bg-bg-secondary/50 rounded-2xl border-l-4 border-accent-primary">
                     <p className="text-sm font-bold text-text-primary capitalize">{p.pattern_type.replace('_', ' ')}</p>
                     <p className="text-xs text-text-secondary mt-1">{p.insight}</p>

@@ -40,8 +40,9 @@ export const NewGoalModal: React.FC = () => {
       await createGoal({ ...data, description: data.description || '' });
       addToast({ type: 'success', message: 'Goal created successfully!' });
       closeModal();
-    } catch (error: any) {
-      addToast({ type: 'error', message: error.message || 'An unexpected error occurred' });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'An unexpected error occurred';
+      addToast({ type: 'error', message });
     }
   };
 

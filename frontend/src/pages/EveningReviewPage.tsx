@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Moon, ThumbsUp, Check, X, Clock, Star, MessageSquare } from 'lucide-react';
 import { client } from '../api/client';
 import { useUIStore } from '../stores/uiStore';
 import { useScheduleStore } from '../stores/scheduleStore';
+import type { TaskDetail } from '../api/scheduleApi';
 
 interface TaskReviewState {
   task_id: string;
@@ -26,7 +27,7 @@ export default function EveningReviewPage() {
     fetchTodaySchedule();
   }, [fetchTodaySchedule]);
 
-  const reviewTasks = schedule?.tasks || [];
+  const reviewTasks = useMemo(() => schedule?.tasks || [], [schedule?.tasks]);
 
   useEffect(() => {
     if (reviewTasks) {
@@ -87,7 +88,7 @@ export default function EveningReviewPage() {
           <h2 className="text-sm font-bold uppercase tracking-widest text-text-tertiary px-2">Task Verification</h2>
           
           <div className="space-y-4">
-            {reviewTasks.map((task: any) => {
+            {reviewTasks.map((task: TaskDetail) => {
               const review = reviews[task.id];
               if (!review) return null;
 

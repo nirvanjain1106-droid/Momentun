@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import { useUIStore } from '../stores/uiStore';
 import { client, setAccessToken } from '../api/client';
+import { getErrorMessage } from '../lib/errorUtils';
 import classes from './Auth.module.css';
 import { Loader2 } from 'lucide-react';
 
@@ -37,10 +38,10 @@ export default function RegisterPage() {
         type: 'success',
         message: 'Account created successfully! Let\'s get you set up.',
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       addToast({
         type: 'error',
-        message: error.response?.data?.detail || 'Registration failed. Please try again.',
+        message: getErrorMessage(error, 'Registration failed. Please try again.'),
       });
     } finally {
       setLoading(false);
