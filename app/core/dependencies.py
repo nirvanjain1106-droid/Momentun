@@ -1,7 +1,7 @@
 import uuid
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -59,6 +59,48 @@ async def get_current_user(
 
     return user
 
+
+async def get_current_user_from_cookie(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """
+    Auth dependency for SSE endpoints.
+    EventSource can't set Authorization headers, so we read from:
+    1. Cookie: 'access_token' (set at login alongside refresh_token)
+    2. Query param: '?token=' (fallback for clients that can't set cookies)
+    """
+    token = request.cookies.get("access_token")
+    if not token:
+        token = request.query_params.get("token")
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="SSE authentication required — no token in cookie or query param",
+        )
+
+    payload = decode_token(token)
+    if payload is None or payload.get("type") != "access":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired access token",
+        )
+
+    try:
+        user_id = uuid.UUID(payload["sub"])
+    except (KeyError, ValueError):
+        raise HTTPException(status_code=401, detail="Invalid token payload")
+
+    result = await db.execute(
+        select(User)
+        .options(selectinload(User.user_settings))
+        .where(User.id == user_id)
+    )
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return user
 
 async def get_current_user_onboarding_complete(
     current_user: Annotated[User, Depends(get_current_user)],

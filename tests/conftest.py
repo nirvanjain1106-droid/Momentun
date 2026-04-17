@@ -1,7 +1,127 @@
 """Shared test fixtures and utilities."""
 
 import uuid
+import pytest
+import asyncio
+from httpx import AsyncClient, ASGITransport
 from types import SimpleNamespace
+from datetime import datetime, timezone, timedelta
+
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.orm import selectinload
+
+from app.main import app
+from app.database import Base, get_db
+from app.models.user import User, UserBehaviouralProfile, UserSettings
+from app.core.security import hash_password, create_access_token
+
+
+@pytest.fixture(scope="session")
+def anyio_backend():
+    return "asyncio"
+
+
+# ── Database ──────────────────────────────────────────────────
+
+@pytest.fixture(scope="session")
+def sqlite_engine():
+    """Create a session-wide SQLite in-memory engine."""
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+    return engine
+
+
+@pytest.fixture(scope="function")
+async def test_db(sqlite_engine):
+    """Provide a fresh, clean database for each test function."""
+    async with sqlite_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(sqlite_engine, expire_on_commit=False, class_=AsyncSession)
+    async with session_factory() as session:
+        yield session
+
+    async with sqlite_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+
+
+# ── Client ────────────────────────────────────────────────────
+
+@pytest.fixture(scope="function")
+async def async_client(test_db):
+    """FastAPI test client with DB override."""
+    
+    async def override_get_db():
+        yield test_db
+
+    app.dependency_overrides[get_db] = override_get_db
+    
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        yield ac
+    
+    app.dependency_overrides.clear()
+
+
+# ── Specialized Security Fixtures ───────────────────────────
+
+@pytest.fixture(scope="function")
+async def setup_test_user(test_db):
+    """Create a standard user and return (user, token)."""
+    uid = uuid.uuid4()
+    user = User(
+        id=uid,
+        name="Test User",
+        email=f"test_{uid.hex[:6]}@example.com",
+        password_hash=hash_password("Password123!"),
+        user_type="student",
+        onboarding_complete=True,
+    )
+    test_db.add(user)
+    
+    # Needs settings and profile for some dependencies
+    settings = UserSettings(user_id=uid, theme="light", preferred_model="primary")
+    profile = UserBehaviouralProfile(
+        user_id=uid,
+        wake_time="07:00",
+        sleep_time="23:00",
+        chronotype="intermediate",
+        daily_commitment_hrs=4.0
+    )
+    test_db.add(settings)
+    test_db.add(profile)
+    
+    await test_db.flush()
+    await test_db.commit()
+    
+    token = create_access_token(user.id, user.email)
+    return user, token
+
+
+@pytest.fixture(scope="function")
+def redis_client(mocker):
+    """Mock Redis client for rate limit tests."""
+    class MockRedis:
+        def __init__(self):
+            self.storage = {}
+
+        async def flushdb(self):
+            self.storage = {}
+
+        async def get(self, key):
+            return self.storage.get(key)
+
+        async def setex(self, key, time, value):
+            self.storage[key] = value
+
+        async def incr(self, key):
+            val = int(self.storage.get(key, 0)) + 1
+            self.storage[key] = str(val)
+            return val
+
+    return MockRedis()
+
+
+# ── Legacy Handlers (Keep for backward compat) ────────────────
 
 
 def make_user(**overrides):

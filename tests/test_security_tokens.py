@@ -18,7 +18,7 @@ def test_password_hash_and_verify_roundtrip():
 def test_access_and_refresh_tokens_decode_with_types():
     user_id = uuid.uuid4()
     access = create_access_token(user_id, "a@example.com")
-    refresh = create_refresh_token(user_id)
+    refresh = create_refresh_token(user_id, uuid.uuid4())
     assert decode_token(access)["type"] == "access"
     assert decode_token(refresh)["type"] == "refresh"
 

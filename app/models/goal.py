@@ -336,9 +336,9 @@ class Task(Base):
 
     sequence_order: Mapped[int] = mapped_column(Integer, nullable=False)
 
-    # Fix #6 — task lifecycle for Parking Lot
+    # Fix #6 — task lifecycle for Later
     # active = on today schedule
-    # deferred = solver dropped it, in parking lot
+    # deferred = solver dropped it, saved for later
     # parked = manually parked by user
     # completed = done (detailed log in task_logs)
     task_status: Mapped[str] = mapped_column(

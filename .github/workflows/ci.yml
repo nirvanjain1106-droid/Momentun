@@ -33,6 +33,12 @@ jobs:
           PYTHONPATH: .
         run: pytest -q --cov=app --cov-report=term-missing --cov-fail-under=30
 
+      - name: Security Tests
+        env:
+          SECRET_KEY: ci-secret-key-at-least-32-characters-long
+          PYTHONPATH: .
+        run: pytest tests/ -m security --strict-markers -v
+
       - name: Alembic migration check
         env:
           SECRET_KEY: ci-secret-key-at-least-32-characters-long

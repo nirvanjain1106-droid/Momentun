@@ -852,7 +852,7 @@ def _detect_overload_triggers(
         pattern_type="overload_triggers",
         severity=_severity_from_ratio(1 - overloaded_rate),
         insight="When more than 4 tasks are scheduled, your completion rate drops sharply.",
-        fix="Cap overloaded days at 4 meaningful tasks and move the rest into the parking lot early.",
+        fix="Cap overloaded days at 4 meaningful tasks and move the rest into later early.",
         supporting_data={
             "threshold": 4,
             "overloaded_completion_rate": round(overloaded_rate, 3),
@@ -1263,6 +1263,7 @@ async def get_heatmap(
             intensity=intensity,
             tasks_completed=completed,
             tasks_scheduled=scheduled,
+            mood_score=log.mood_score if log else None,
         ))
 
     return HeatmapResponse(

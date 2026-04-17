@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { client } from '../api/client';
+import { analytics } from '../lib/analytics';
 
 export interface AuthState {
   userId: string | null;
@@ -40,6 +41,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             isHydrated: true,
             isBootRefreshing: true,
           });
+          analytics.identify(parsed.userId, { name: parsed.userName });
           
           client.post('/auth/refresh')
             .catch(() => {
@@ -100,6 +102,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       'auth_state',
       JSON.stringify({ userId, userName, onboardingComplete: onboarding })
     );
+    analytics.identify(userId, { name: userName });
   },
 
   logout: async () => {
@@ -118,5 +121,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // CRITICAL: MUST NOT reset isHydrated to false!
       // This prevents permanent Suspense fallback on /login
     });
+    analytics.reset();
   },
 }));

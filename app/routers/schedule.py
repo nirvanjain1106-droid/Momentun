@@ -9,6 +9,8 @@ from app.schemas.schedule import (
     WeekScheduleResponse,
 )
 from app.services import schedule_service
+from app.services.event_bus import event_bus
+from datetime import datetime, timezone
 
 router = APIRouter(prefix="/schedule", tags=["Schedule"])
 
@@ -31,7 +33,15 @@ async def generate_schedule(
     current_user: CurrentUserComplete,
     db: DB,
 ) -> ScheduleResponse:
-    return await schedule_service.generate_schedule(current_user, data, db)
+    result = await schedule_service.generate_schedule(current_user, data, db)
+
+    await event_bus.publish(str(current_user.id), {
+        "event": "schedule_updated",
+        "data": {"schedule_id": str(result.id), "action": "generated"},
+        "ts": datetime.now(timezone.utc).isoformat(),
+    })
+
+    return result
 
 
 @router.get(
@@ -89,5 +99,13 @@ async def regenerate_schedule(
     current_user: CurrentUserComplete,
     db: DB,
 ) -> ScheduleResponse:
-    return await schedule_service.regenerate_today_schedule(current_user, db)
+    result = await schedule_service.regenerate_today_schedule(current_user, db)
+
+    await event_bus.publish(str(current_user.id), {
+        "event": "schedule_updated",
+        "data": {"schedule_id": str(result.id), "action": "regenerated"},
+        "ts": datetime.now(timezone.utc).isoformat(),
+    })
+
+    return result
 

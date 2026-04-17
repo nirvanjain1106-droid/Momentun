@@ -10,6 +10,10 @@ from app.config import settings
 # Password hashing context
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
+def hash_token(raw_token: str) -> str:
+    """SHA-256 hash a raw token for storage. Not reversible."""
+    import hashlib
+    return hashlib.sha256(raw_token.encode()).hexdigest()
 
 def hash_password(plain_password: str) -> str:
     """Hash a plain text password using bcrypt."""
@@ -39,9 +43,9 @@ def create_access_token(user_id: uuid.UUID, email: str) -> str:
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
-def create_refresh_token(user_id: uuid.UUID) -> str:
+def create_refresh_token(user_id: uuid.UUID, family_id: uuid.UUID) -> str:
     """
-    Create a long-lived JWT refresh token.
+    Create a long-lived JWT refresh token with embedded family_id.
     Expires in REFRESH_TOKEN_EXPIRE_DAYS (default 7 days).
     """
     expire = datetime.now(timezone.utc) + timedelta(
@@ -49,6 +53,7 @@ def create_refresh_token(user_id: uuid.UUID) -> str:
     )
     payload = {
         "sub": str(user_id),
+        "fid": str(family_id),
         "type": "refresh",
         "exp": expire,
         "iat": datetime.now(timezone.utc),

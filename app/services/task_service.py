@@ -7,8 +7,13 @@ import uuid
 import logging
 from datetime import datetime, timezone, date, timedelta
 from typing import Optional, List
+import hmac
+import hashlib
+
+from app.config import settings
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from sqlalchemy import select, and_, update
 from fastapi import HTTPException, status
 
@@ -24,6 +29,11 @@ from app.schemas.tasks import (
 from app.core.constants import PRIORITY_LABELS
 
 logger = logging.getLogger(__name__)
+
+def _pii_hash(value: str) -> str:
+    return hmac.new(
+        settings.SECRET_KEY.encode(), value.encode(), hashlib.sha256,
+    ).hexdigest()[:12]
 
 
 # ── Complete ──────────────────────────────────────────────────
@@ -42,9 +52,14 @@ async def complete_task(
     task = await _get_user_task(user_id, task_id, db)
 
     if task.task_status == "completed":
+        task_response = _build_task_response(task)
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Task is already completed",
+            status_code=409,
+            detail={
+                "message": "Conflict detected",
+                "server_state": task_response.model_dump(mode="json"),
+                "merge_rules": ["completed_wins", "deleted_wins"],
+            }
         )
 
     # Get or create today's DailyLog
@@ -96,10 +111,20 @@ async def park_task(
     """Move a task to the parking lot."""
     task = await _get_user_task(user_id, task_id, db)
 
-    if task.task_status in ("completed", "parked"):
+    if task.task_status == "completed":
+        task_response = _build_task_response(task)
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Conflict detected",
+                "server_state": task_response.model_dump(mode="json"),
+                "merge_rules": ["completed_wins", "deleted_wins"],
+            }
+        )
+    if task.task_status == "parked":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot park a task with status '{task.task_status}'",
+            detail="Task is already moved to later",
         )
 
     task.previous_status = task.task_status
@@ -110,13 +135,54 @@ async def park_task(
 
     await db.flush()
     logger.info("task_parked", extra={
-        "task_id": str(task_id), "user_id": str(user_id), "reason": reason,
+        "task_id": str(task_id), "user_id": str(user_id),
     })
     return _build_task_response(task)
 
 
 # ── Reschedule ────────────────────────────────────────────────
 
+
+async def _find_next_available_date(
+    user_id: uuid.UUID,
+    new_task: "TaskRequirement",
+    start_date: date,
+    db: AsyncSession,
+    max_lookahead_days: int = 3,
+) -> Optional[date]:
+    from app.services.schedule_service import build_solver_for_user
+    from app.services.constraint_solver import ScheduledTask
+    
+    for delta in range(1, max_lookahead_days + 1):
+        candidate = start_date + timedelta(days=delta)
+        result = await db.execute(
+            select(Schedule).options(selectinload(Schedule.tasks)).where(
+                and_(
+                    Schedule.user_id == user_id,
+                    Schedule.schedule_date == candidate,
+                )
+            )
+        )
+        existing = result.scalar_one_or_none()
+        existing_scheduled = []
+        if existing:
+            for t in existing.tasks:
+                if t.task_status not in ("active", "completed", "expired"): continue
+                if not t.scheduled_start or not t.scheduled_end: continue
+                existing_scheduled.append(ScheduledTask(
+                    task_id=str(t.id),
+                    title=t.title,
+                    task_type=t.task_type,
+                    duration_mins=t.duration_mins,
+                    energy_required=t.energy_required,
+                    scheduled_start=t.scheduled_start,
+                    scheduled_end=t.scheduled_end,
+                ))
+                
+        solver = await build_solver_for_user(user_id, candidate, db)
+        if solver.fit_single_task(new_task, existing_scheduled, candidate):
+            return candidate
+    return None
 
 async def reschedule_task(
     user_id: uuid.UUID,
@@ -127,17 +193,28 @@ async def reschedule_task(
     """Move a parked/deferred task to a specific date."""
     task = await _get_user_task(user_id, task_id, db)
 
+    if task.task_status == "completed":
+        task_response = _build_task_response(task)
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Conflict detected",
+                "server_state": task_response.model_dump(mode="json"),
+                "merge_rules": ["completed_wins", "deleted_wins"],
+            }
+        )
+
     if task.task_status not in ("parked", "deferred"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Can only reschedule parked or deferred tasks. Current status: {task.task_status}",
+            detail=f"Can only reschedule tasks saved for later. Current status: {task.task_status}",
         )
 
     target_date = date.fromisoformat(target_date_str)
 
     # Check if target date has a schedule
     result = await db.execute(
-        select(Schedule).where(
+        select(Schedule).options(selectinload(Schedule.tasks)).where(
             and_(
                 Schedule.user_id == user_id,
                 Schedule.schedule_date == target_date,
@@ -147,10 +224,55 @@ async def reschedule_task(
     existing_schedule = result.scalar_one_or_none()
 
     if existing_schedule:
+        from app.services.schedule_service import build_solver_for_user
+        from app.services.constraint_solver import TaskRequirement, ScheduledTask
+        
+        req = TaskRequirement(
+            id=str(task.id),
+            title=task.title,
+            task_type=task.task_type,
+            duration_mins=task.duration_mins,
+            energy_required=task.energy_required,
+            priority=task.priority,
+        )
+        existing_scheduled = []
+        completed_task_ids = set()
+        
+        for t in existing_schedule.tasks:
+            if t.task_status == "completed":
+                completed_task_ids.add(str(t.id))
+            if t.task_status not in ("active", "completed", "expired"): continue
+            if not t.scheduled_start or not t.scheduled_end: continue
+            existing_scheduled.append(ScheduledTask(
+                task_id=str(t.id),
+                title=t.title,
+                task_type=t.task_type,
+                duration_mins=t.duration_mins,
+                energy_required=t.energy_required,
+                scheduled_start=t.scheduled_start,
+                scheduled_end=t.scheduled_end,
+            ))
+            
+        solver = await build_solver_for_user(user_id, target_date, db)
+        placement = solver.fit_single_task(req, existing_scheduled, target_date, completed_task_ids=completed_task_ids)
+        
+        if not placement:
+            suggested_date = await _find_next_available_date(user_id, req, target_date, db)
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "reason": "no_suitable_gap",
+                    "message": "No available time slot fits this task today.",
+                    "suggested_date": suggested_date.isoformat() if suggested_date else None,
+                }
+            )
+        
         # Attach to existing schedule
         task.schedule_id = existing_schedule.id
         task.previous_status = task.task_status
         task.task_status = "active"
+        task.scheduled_start = placement.scheduled_start
+        task.scheduled_end = placement.scheduled_end
         logger.info("task_rescheduled_to_existing", extra={
             "task_id": str(task_id), "target_date": target_date_str,
         })
@@ -286,6 +408,17 @@ async def soft_delete_task(
 ) -> TaskDetailResponse:
     """Soft-delete a single task."""
     task = await _get_user_task(user_id, task_id, db)
+
+    if task.task_status == "completed":
+        task_response = _build_task_response(task)
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Conflict detected",
+                "server_state": task_response.model_dump(mode="json"),
+                "merge_rules": ["completed_wins", "deleted_wins"],
+            }
+        )
 
     task.previous_status = task.task_status
     task.deleted_at = datetime.now(timezone.utc)
@@ -426,7 +559,7 @@ async def quick_add_task(
     db: AsyncSession,
 ) -> TaskDetailResponse:
     """
-    Quick-capture: create a task with minimal info, straight to parking lot.
+    Quick-capture: create a task with minimal info, straight to 'later'.
     Zero friction — just title + duration. goal_id optional.
     """
     if not title or not title.strip():
@@ -461,6 +594,6 @@ async def quick_add_task(
     await db.flush()
 
     logger.info("task_quick_added", extra={
-        "task_id": str(task.id), "user_id": str(user_id), "title": title,
+        "task_id": str(task.id), "user_id": str(user_id), "title_hash": _pii_hash(title),
     })
     return _build_task_response(task)

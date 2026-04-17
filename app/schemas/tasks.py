@@ -32,7 +32,7 @@ class TaskCompleteRequest(BaseModel):
 
 
 class TaskParkRequest(BaseModel):
-    """Manually park a task (move to parking lot)."""
+    """Manually park a task (move to later)."""
     reason: Optional[str] = None
 
     @field_validator("reason")
@@ -151,7 +151,7 @@ class BulkDeleteResponse(BaseModel):
 
 
 class QuickAddRequest(BaseModel):
-    """Quick-capture: minimal task creation, straight to parking lot."""
+    """Quick-capture: minimal task creation, straight to later."""
     title: str
     duration_mins: int = 30
     goal_id: Optional[uuid.UUID] = None

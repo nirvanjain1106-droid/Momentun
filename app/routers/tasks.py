@@ -20,7 +20,9 @@ from app.schemas.tasks import (
 )
 from app.services import task_service, user_service, insights_service
 from app.services.idempotency_service import IdempotencyService
+from app.services.event_bus import event_bus
 from app.core.timezone import get_user_today
+from datetime import datetime, timezone
 
 router = APIRouter(prefix="/tasks", tags=["Tasks"])
 
@@ -62,15 +64,21 @@ async def complete_task(
             db, idempotency_key, f"/tasks/{task_id}/complete", response_data.model_dump(mode="json")
         )
 
+    await event_bus.publish(str(current_user.id), {
+        "event": "schedule_updated",
+        "data": {"task_id": str(task_id), "action": "completed"},
+        "ts": datetime.now(timezone.utc).isoformat(),
+    })
+
     return response_data
 
 
 @router.post(
     "/{task_id}/park",
     response_model=TaskMutationResponse,
-    summary="Park a task (move to parking lot)",
+    summary="Park a task (move to later)",
     description=(
-        "Manually move a task to the parking lot. "
+        "Manually move a task to later. "
         "Removes it from today's schedule. "
         "Can be rescheduled to a future date later."
     ),
@@ -101,6 +109,12 @@ async def park_task(
         await IdempotencyService.save_response(
             db, idempotency_key, f"/tasks/{task_id}/park", response_data.model_dump(mode="json")
         )
+
+    await event_bus.publish(str(current_user.id), {
+        "event": "schedule_updated",
+        "data": {"task_id": str(task_id), "action": "parked"},
+        "ts": datetime.now(timezone.utc).isoformat(),
+    })
 
     return response_data
 
@@ -162,13 +176,19 @@ async def undo_task(
             db, idempotency_key, f"/tasks/{task_id}/undo", response_data.model_dump(mode="json")
         )
 
+    await event_bus.publish(str(current_user.id), {
+        "event": "schedule_updated",
+        "data": {"task_id": str(task_id), "action": "undone"},
+        "ts": datetime.now(timezone.utc).isoformat(),
+    })
+
     return response_data
 
 
 @router.get(
     "/parked",
     response_model=ParkedTasksListResponse,
-    summary="View parking lot",
+    summary="View later",
     description=(
         "Get all parked and deferred tasks. "
         "Use ?stale=true to filter tasks parked for more than 14 days."
@@ -196,7 +216,15 @@ async def delete_task(
     current_user: CurrentUserComplete,
     db: DB,
 ) -> TaskDetailResponse:
-    return await task_service.soft_delete_task(current_user.id, task_id, db)
+    result = await task_service.soft_delete_task(current_user.id, task_id, db)
+
+    await event_bus.publish(str(current_user.id), {
+        "event": "schedule_updated",
+        "data": {"task_id": str(task_id), "action": "deleted"},
+        "ts": datetime.now(timezone.utc).isoformat(),
+    })
+
+    return result
 
 
 @router.post(
@@ -205,7 +233,7 @@ async def delete_task(
     summary="Bulk delete stale tasks",
     description=(
         "Soft-delete multiple tasks at once. "
-        "Useful for clearing stale parking lot items."
+        "Useful for clearing stale later items."
     ),
 )
 @limiter.limit(settings.RATE_LIMIT_DEFAULT)
@@ -225,7 +253,7 @@ async def bulk_delete_tasks(
     summary="Quick-add a task",
     description=(
         "Zero-friction task capture. Just provide title + duration. "
-        "Task goes straight to parking lot. "
+        "Task goes straight to later. "
         "Can be scheduled later via reschedule or by the solver."
     ),
 )

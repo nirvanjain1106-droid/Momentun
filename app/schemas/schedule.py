@@ -56,7 +56,7 @@ class TaskResponse(BaseModel):
 class ParkedTaskResponse(BaseModel):
     """
     Fix #7 — tasks the solver couldn't fit today.
-    Shown to user as "Parking Lot" items.
+    Shown to user as "Later" items.
     """
     id: uuid.UUID
     title: str

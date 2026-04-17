@@ -34,12 +34,21 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 async def register(request: Request, response: Response, data: RegisterRequest, db: DB) -> TokenResponse:
     auth_response, refresh_token = await auth_service.register_user(data, db)
     response.set_cookie(
+        key="access_token",
+        value=auth_response.access_token,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        path="/api/v1",
+        max_age=1800,
+    )
+    response.set_cookie(
         key="refresh_token",
         value=refresh_token,
         httponly=True,
         secure=True,
-        samesite="none",
-        path="/api/v1/auth",
+        samesite="lax",
+        path="/api/v1",
         max_age=604800,
     )
     return auth_response
@@ -54,12 +63,21 @@ async def register(request: Request, response: Response, data: RegisterRequest, 
 async def login(request: Request, response: Response, data: LoginRequest, db: DB) -> TokenResponse:
     auth_response, refresh_token = await auth_service.login_user(data, db)
     response.set_cookie(
+        key="access_token",
+        value=auth_response.access_token,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        path="/api/v1",
+        max_age=1800,
+    )
+    response.set_cookie(
         key="refresh_token",
         value=refresh_token,
         httponly=True,
         secure=True,
-        samesite="none",
-        path="/api/v1/auth",
+        samesite="lax",
+        path="/api/v1",
         max_age=604800,
     )
     return auth_response
@@ -74,7 +92,7 @@ async def login(request: Request, response: Response, data: LoginRequest, db: DB
         "Use this when the access token expires (every 30 minutes)."
     ),
 )
-async def refresh(request: Request, db: DB, data: RefreshRequest | None = None) -> AccessTokenResponse:
+async def refresh(request: Request, response: Response, db: DB, data: RefreshRequest | None = None) -> AccessTokenResponse:
     content_type = request.headers.get("content-type")
     if content_type != "application/json":
         raise HTTPException(
@@ -90,7 +108,32 @@ async def refresh(request: Request, db: DB, data: RefreshRequest | None = None) 
         )
 
     result = await auth_service.refresh_access_token(refresh_token, db)
-    return AccessTokenResponse(**result)
+    
+    response.set_cookie(
+        key="access_token",
+        value=result["access_token"],
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        path="/api/v1",
+        max_age=1800,
+    )
+    
+    if result.get("new_refresh_token"):
+        response.set_cookie(
+            key="refresh_token",
+            value=result["new_refresh_token"],
+            httponly=True,
+            secure=True,
+            samesite="lax",
+            path="/api/v1",
+            max_age=604800,
+        )
+
+    return AccessTokenResponse(
+        access_token=result["access_token"],
+        token_type="bearer"
+    )
 
 
 @router.get(
@@ -146,15 +189,25 @@ async def confirm_password_reset(
         "The client should delete any stored access and refresh tokens."
     ),
 )
-async def logout(current_user: CurrentUser, response: Response) -> LogoutResponse:
-    result = await auth_service.logout()
+async def logout(request: Request, response: Response, db: DB, current_user: CurrentUser) -> LogoutResponse:
+    refresh_token = request.cookies.get("refresh_token")
+    result = await auth_service.logout(refresh_token, db)
+    response.set_cookie(
+        key="access_token",
+        value="",
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        path="/api/v1",
+        max_age=0,
+    )
     response.set_cookie(
         key="refresh_token",
         value="",
         httponly=True,
         secure=True,
-        samesite="none",
-        path="/api/v1/auth",
+        samesite="lax",
+        path="/api/v1",
         max_age=0,
     )
     return LogoutResponse(message=result.message)

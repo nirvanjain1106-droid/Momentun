@@ -5,7 +5,10 @@ import { AppShell } from './components/layout/AppShell';
 import { ErrorBoundary } from './components/layout/ErrorBoundary';
 import { ChunkLoadError } from './components/ui/ChunkLoadError';
 import { PageSkeleton } from './components/ui/PageSkeleton';
+import { SyncFailedBanner } from './components/ui/SyncFailedBanner';
 import { useUIStore } from './stores/uiStore';
+import { useOfflineSync } from './hooks/useOfflineSync';
+import { useSSE } from './hooks/useSSE';
 
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
@@ -43,10 +46,14 @@ function App() {
     };
   }, [setOffline]);
 
+  useOfflineSync();
+  useSSE();
+
   return (
     <BrowserRouter>
       <AuthGate>
         <AppShell>
+          <SyncFailedBanner />
           <Suspense fallback={<PageSkeleton />}>
             <Routes>
               <Route path="/login" element={<LoginPage />} />

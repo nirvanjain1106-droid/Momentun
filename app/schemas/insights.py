@@ -100,6 +100,7 @@ class HeatmapEntry(BaseModel):
     intensity: str  # "none", "low", "medium", "high"
     tasks_completed: int
     tasks_scheduled: int
+    mood_score: Optional[int] = None
 
 
 class HeatmapResponse(BaseModel):

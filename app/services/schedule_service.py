@@ -16,6 +16,10 @@ import logging
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional, List
 import uuid
+import hmac
+import hashlib
+
+from app.config import settings
 
 from app.core.timezone import get_user_today
 
@@ -49,6 +53,67 @@ from app.services import goal_service
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+def _pii_hash(value: str) -> str:
+    return hmac.new(
+        settings.SECRET_KEY.encode(), value.encode(), hashlib.sha256,
+    ).hexdigest()[:12]
+
+
+async def build_solver_for_user(
+    user_id: uuid.UUID,
+    target_date: date,
+    db: AsyncSession,
+) -> ConstraintSolver:
+    """Builds a constraint solver configured for a specific user and date."""
+    behavioural = await _get_behavioural_profile(user_id, db)
+    if not behavioural:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Complete your behavioural profile before generating a schedule.",
+        )
+
+    health_profile = await _get_health_profile(user_id, db)
+    capacity_modifier = 1.0
+
+    if health_profile:
+        if health_profile.has_chronic_fatigue:
+            capacity_modifier *= 0.85
+        if health_profile.sleep_quality == "poor":
+            capacity_modifier *= 0.90
+        elif health_profile.sleep_quality == "irregular":
+            capacity_modifier *= 0.93
+        if health_profile.average_sleep_hrs and float(health_profile.average_sleep_hrs) < 6:
+            capacity_modifier *= 0.90
+
+    fixed_blocks = await _get_fixed_blocks_for_date(user_id, target_date, db)
+    _check_block_overlaps(fixed_blocks)
+
+    solver_blocks = [
+        FixedBlockData(
+            title=b.title,
+            block_type=b.block_type,
+            start_time=str(b.start_time),
+            end_time=str(b.end_time),
+            buffer_before=b.buffer_before,
+            buffer_after=b.buffer_after,
+        )
+        for b in fixed_blocks
+    ]
+
+    adjusted_commitment = float(behavioural.daily_commitment_hrs) * capacity_modifier
+
+    return ConstraintSolver(
+        fixed_blocks=solver_blocks,
+        peak_energy_start=str(behavioural.peak_energy_start or "09:00"),
+        peak_energy_end=str(behavioural.peak_energy_end or "13:00"),
+        wake_time=str(behavioural.wake_time),
+        sleep_time=str(behavioural.sleep_time),
+        daily_commitment_hrs=adjusted_commitment,
+        heavy_days=behavioural.heavy_days or [],
+        light_days=behavioural.light_days or [],
+        chronotype=behavioural.chronotype,
+    )
 
 
 async def generate_schedule(
@@ -661,7 +726,10 @@ def _check_block_overlaps(blocks: List[FixedBlock]) -> None:
         s2, _, t2 = normal_blocks[i + 1]
         if s2 < e1:
             # Overlap detected — log it but continue
-            logger.warning("fixed_block_overlap_detected", extra={"block_1": t1, "block_2": t2})
+            logger.warning("fixed_block_overlap_detected", extra={
+                "block_1_hash": _pii_hash(t1), 
+                "block_2_hash": _pii_hash(t2)
+            })
 
 
 def _generate_task_requirements(

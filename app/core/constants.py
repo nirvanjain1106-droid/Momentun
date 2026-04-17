@@ -49,7 +49,7 @@ PATTERN_MIN_SAMPLES = {
     "overload_triggers": 5,       # 5+ overloaded days
 }
 
-# Parking lot staleness
+# Later staleness
 PARKING_LOT_STALE_DAYS = 14
 
 # Schedule bankruptcy — days of inactivity before triggering recovery

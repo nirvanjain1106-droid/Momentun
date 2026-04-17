@@ -183,10 +183,23 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
       });
       get().removePatch(taskId);
       
-    } catch (error: unknown) {
+    } catch (error: any) {
+      // Offline / Network Error or 409 Conflict => Handled by background queue later
+      if (!navigator.onLine || error.code === 'ERR_NETWORK' || error.response?.status === 409) {
+        import('../lib/offlineQueue').then(({ enqueueAction }) => {
+          enqueueAction({
+            type: 'complete',
+            task_id: taskId,
+            payload: { actual_duration_mins, quality_rating }
+          });
+        });
+        get().removePatch(taskId); // Keep optimistic update!
+        return;
+      }
+
       // 4. Rollback Failure
       get().rollbackPatch(taskId);
-      const msg = error instanceof Error ? error.message : 'Network error';
+      const msg = error.message || 'Network error';
       set({ error: `Failed to complete task: ${msg}` });
     }
   },
@@ -246,9 +259,21 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
       });
       get().removePatch(taskId);
       
-    } catch (error: unknown) {
+    } catch (error: any) {
+      if (!navigator.onLine || error.code === 'ERR_NETWORK' || error.response?.status === 409) {
+        import('../lib/offlineQueue').then(({ enqueueAction }) => {
+          enqueueAction({
+            type: 'park',
+            task_id: taskId,
+            payload: { reason }
+          });
+        });
+        get().removePatch(taskId); // Keep optimistic
+        return;
+      }
+
       get().rollbackPatch(taskId);
-      const msg = error instanceof Error ? error.message : 'Network error';
+      const msg = error.message || 'Network error';
       set({ error: `Failed to park task: ${msg}` });
     }
   },
@@ -322,9 +347,20 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
       });
       get().removePatch(taskId);
       
-    } catch (error: unknown) {
+    } catch (error: any) {
+      if (!navigator.onLine || error.code === 'ERR_NETWORK' || error.response?.status === 409) {
+        import('../lib/offlineQueue').then(({ enqueueAction }) => {
+          enqueueAction({
+            type: 'undo',
+            task_id: taskId
+          });
+        });
+        get().removePatch(taskId); // Keep optimistic
+        return;
+      }
+
       get().rollbackPatch(taskId);
-      const msg = error instanceof Error ? error.message : 'Network error';
+      const msg = error.message || 'Network error';
       set({ error: `Failed to undo task action: ${msg}` });
     }
   },

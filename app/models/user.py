@@ -95,6 +95,9 @@ class User(Base):
     fixed_blocks: Mapped[List["FixedBlock"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    refresh_tokens: Mapped[List["RefreshToken"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class UserAcademicProfile(Base):
@@ -299,3 +302,21 @@ class UserSettings(Base):
     )
 
     user: Mapped["User"] = relationship(back_populates="user_settings")
+
+class RefreshToken(Base):
+    __tablename__ = "refresh_tokens"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    token_hash: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
+    family_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    user: Mapped["User"] = relationship(back_populates="refresh_tokens")

@@ -1,12 +1,13 @@
 import uuid
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, update, func
 from fastapi import HTTPException, status
 
-from app.models.user import User, NotificationSettings, UserSettings
+from app.models.user import User, NotificationSettings, UserSettings, RefreshToken
+from app.config import settings
 from app.schemas.auth import (
     RegisterRequest,
     LoginRequest,
@@ -22,6 +23,7 @@ from app.core.security import (
     create_email_verification_token,
     create_password_reset_token,
     decode_token,
+    hash_token,
 )
 from app.core.email import send_verification_email, send_password_reset_email
 
@@ -69,8 +71,17 @@ async def register_user(data: RegisterRequest, db: AsyncSession) -> tuple[TokenR
     except Exception:
         logger.exception("verification_email_send_failed", extra={"user_id": str(user.id)})
 
+    family_id = uuid.uuid4()
     access_token = create_access_token(user.id, user.email)
-    refresh_token = create_refresh_token(user.id)
+    refresh_token = create_refresh_token(user.id, family_id)
+
+    db.add(RefreshToken(
+        user_id=user.id,
+        token_hash=hash_token(refresh_token),
+        family_id=family_id,
+        expires_at=datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+    ))
+    await db.flush()
 
     response = TokenResponse(
         access_token=access_token,
@@ -104,8 +115,17 @@ async def login_user(data: LoginRequest, db: AsyncSession) -> tuple[TokenRespons
         )
     logger.info("user_login_success", extra={"user_id": str(user.id)})
 
+    family_id = uuid.uuid4()
     access_token = create_access_token(user.id, user.email)
-    refresh_token = create_refresh_token(user.id)
+    refresh_token = create_refresh_token(user.id, family_id)
+
+    db.add(RefreshToken(
+        user_id=user.id,
+        token_hash=hash_token(refresh_token),
+        family_id=family_id,
+        expires_at=datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+    ))
+    await db.flush()
 
     response = TokenResponse(
         access_token=access_token,
@@ -116,37 +136,84 @@ async def login_user(data: LoginRequest, db: AsyncSession) -> tuple[TokenRespons
     return response, refresh_token
 
 
-async def refresh_access_token(refresh_token: str, db: AsyncSession) -> dict:
-    """Validate refresh token and issue a new access token."""
-    payload = decode_token(refresh_token)
-
+async def refresh_access_token(raw_refresh_token: str, db: AsyncSession) -> dict:
+    payload = decode_token(raw_refresh_token)
     if payload is None or payload.get("type") != "refresh":
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired refresh token",
-        )
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
 
+    token_hash = hash_token(raw_refresh_token)
     try:
-        user_id = uuid.UUID(payload["sub"])
+        family_id  = uuid.UUID(payload["fid"])
+        user_id    = uuid.UUID(payload["sub"])
     except (KeyError, ValueError):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token payload",
+        raise HTTPException(status_code=401, detail="Invalid token payload")
+
+    # ATOMIC CLAIM: flip used_at NULL → NOW(). Only ONE request wins.
+    stmt = (
+        update(RefreshToken)
+        .where(
+            RefreshToken.token_hash == token_hash,
+            RefreshToken.used_at.is_(None),
+            RefreshToken.revoked_at.is_(None),
+            RefreshToken.expires_at > func.now(),
         )
+        .values(used_at=func.now())
+        .returning(RefreshToken)
+    )
+    result = await db.execute(stmt)
+    claimed_token = result.scalar_one_or_none()
 
-    result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalar_one_or_none()
+    if claimed_token is not None:
+        new_raw_token = create_refresh_token(user_id, family_id)
+        db.add(RefreshToken(
+            user_id=user_id,
+            token_hash=hash_token(new_raw_token),
+            family_id=family_id,
+            expires_at=datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+        ))
+        await db.flush()
+        user = await db.get(User, user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        return {
+            "access_token":      create_access_token(user.id, user.email),
+            "new_refresh_token": new_raw_token,
+        }
 
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found",
-        )
+    # Token already claimed — check grace window.
+    old_token_result = await db.execute(
+        select(RefreshToken).where(RefreshToken.token_hash == token_hash)
+    )
+    old_token = old_token_result.scalar_one_or_none()
 
-    return {
-        "access_token": create_access_token(user.id, user.email),
-        "token_type": "bearer",
-    }
+    if old_token is None or old_token.revoked_at is not None:
+        raise HTTPException(status_code=401, detail="Token revoked or unknown")
+
+    elapsed = (datetime.now(timezone.utc) - old_token.used_at).total_seconds()
+
+    if elapsed <= 5.0:
+        logger.warning("token_grace_window_hit", extra={
+            "family_id": str(family_id), "elapsed_s": elapsed
+        })
+        user = await db.get(User, user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        return {
+            "access_token":      create_access_token(user.id, user.email),
+            "new_refresh_token": None,
+        }
+
+    # REPLAY ATTACK: >5s. Revoke entire family.
+    logger.error("token_replay_attack_detected", extra={
+        "family_id": str(family_id), "user_id": str(user_id),
+    })
+    await db.execute(
+        update(RefreshToken)
+        .where(RefreshToken.family_id == family_id)
+        .values(revoked_at=func.now())
+    )
+    await db.flush()
+    raise HTTPException(status_code=401, detail="Session compromised — please login again")
 
 
 # ── Email Verification ───────────────────────────────────────
@@ -262,10 +329,20 @@ async def confirm_password_reset(
 # ── Logout ────────────────────────────────────────────────────
 
 
-async def logout() -> MessageResponse:
+async def logout(raw_refresh_token: str, db: AsyncSession) -> MessageResponse:
     """
-    Logout endpoint.
-    Client-side token discard — the client should delete stored tokens.
-    For full server-side revocation, a token blacklist (Redis) is recommended.
+    Logout endpoint. Server-side family revocation.
     """
-    return MessageResponse(message="Logged out successfully. Please discard your tokens.")
+    if raw_refresh_token:
+        token_hash = hash_token(raw_refresh_token)
+        row = (await db.execute(
+            select(RefreshToken).where(RefreshToken.token_hash == token_hash)
+        )).scalar_one_or_none()
+        if row:
+            await db.execute(
+                update(RefreshToken)
+                .where(RefreshToken.family_id == row.family_id)
+                .values(revoked_at=func.now())
+            )
+            await db.flush()
+    return MessageResponse(message="Logged out successfully")

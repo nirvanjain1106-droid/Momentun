@@ -3,6 +3,8 @@ import { client } from '../api/client';
 import { Flame, Activity, CheckCircle, TrendingUp, LineChart as ChartIcon } from 'lucide-react';
 import { useUIStore } from '../stores/uiStore';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { Heatmap } from '../components/dashboard/HeatMap';
+import { PageSkeleton } from '../components/ui/PageSkeleton';
 
 interface StreakData {
   current_streak: number;
@@ -42,6 +44,7 @@ interface WeeklyData {
 export default function InsightsPage() {
   const [streak, setStreak] = useState<StreakData | null>(null);
   const [weekly, setWeekly] = useState<WeeklyData | null>(null);
+  const [heatmapData, setHeatmapData] = useState<any | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -49,13 +52,15 @@ export default function InsightsPage() {
     async function loadData() {
       setIsLoading(true);
       try {
-        const [streakRes, weeklyRes] = await Promise.all([
+        const [streakRes, weeklyRes, heatmapRes] = await Promise.all([
           client.get('/insights/streak'),
-          client.get('/insights/weekly')
+          client.get('/insights/weekly'),
+          client.get('/insights/heatmap')
         ]);
         if (!ignore) {
           setStreak(streakRes.data);
           setWeekly(weeklyRes.data);
+          setHeatmapData(heatmapRes.data);
         }
       } catch {
         if (!ignore) {
@@ -69,7 +74,7 @@ export default function InsightsPage() {
     return () => { ignore = true; };
   }, []);
 
-  if (isLoading) return <div className="p-8 animate-pulse text-text-muted text-center h-full flex items-center justify-center">Crunching your data...</div>;
+  if (isLoading) return <div className="p-6 max-w-5xl mx-auto"><PageSkeleton /></div>;
 
   const barData = weekly?.day_breakdown?.map((day: DayBreakdown) => ({
     name: day.weekday.substring(0, 3),
@@ -138,6 +143,12 @@ export default function InsightsPage() {
           </div>
         </section>
       </div>
+
+      {heatmapData && (
+        <section className="surface-card p-8">
+          <Heatmap data={heatmapData} />
+        </section>
+      )}
 
       {/* Completion Chart */}
       <section className="surface-card p-8">

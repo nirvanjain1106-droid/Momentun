@@ -63,6 +63,7 @@ class TaskRequirement:
     energy_required: str
     priority: int         # 1=Core, 2=Normal, 3=Bonus
     subject: Optional[str] = None
+    task_id: Optional[str] = None
 
 
 @dataclass
@@ -82,6 +83,7 @@ class ScheduledTask:
     # Multi-goal context (Commit 3)
     goal_id: Optional[str] = None
     goal_rank_snapshot: Optional[int] = None
+    task_id: Optional[str] = None
 
 
 @dataclass
@@ -221,6 +223,63 @@ class ConstraintSolver:
             strategy_hint=strategy_hint,
             unsatisfied_goals=unsatisfied_goals,
         )
+
+    def fit_single_task(
+        self,
+        new_task: TaskRequirement,
+        existing_scheduled: List[ScheduledTask],
+        target_date: date,
+        day_type: str = "standard",
+        completed_task_ids: Optional[set] = None,
+        completed_at_map: Optional[dict] = None,
+    ) -> Optional[ScheduledTask]:
+        """
+        Gap-fitting: place ONE task without moving existing ones.
+        Completed tasks free their slots after a 15-min buffer.
+        """
+        timeline = self._build_timeline()
+        timeline = self._block_fixed_commitments(timeline, self._get_day_of_week(target_date))
+
+        completed_task_ids = completed_task_ids or set()
+        completed_at_map   = completed_at_map or {}
+
+        for task in existing_scheduled:
+            start_slot = self._time_to_slot(task.scheduled_start)
+            end_slot   = self._time_to_slot(task.scheduled_end)
+
+            if task.task_id and task.task_id in completed_task_ids:
+                completed_time = completed_at_map.get(task.task_id)
+                if completed_time:
+                    # Calculate exactly how many slots are needed for the 15-min buffer
+                    from datetime import timedelta
+                    buffer_end_time = completed_time + timedelta(minutes=15)
+                    # Block only until the slot that contains the buffer end time
+                    actual_end_slot = self._time_to_slot(buffer_end_time.strftime("%H:%M"))
+                    for i in range(start_slot, min(actual_end_slot + 1, self.SLOTS_PER_DAY)):
+                        timeline[i] = False
+                continue
+
+            for i in range(start_slot, min(end_slot, self.SLOTS_PER_DAY)):
+                timeline[i] = False
+
+        free_windows = self._find_free_windows(timeline, self._get_day_of_week(target_date))
+
+        result = self._try_place_task(
+            new_task, free_windows,
+            {i: w.usable_mins for i, w in enumerate(free_windows)},
+            {i: w.start_time  for i, w in enumerate(free_windows)},
+            energy_strict=True,
+            sequence=len(existing_scheduled),
+        )
+        if not result:
+            result = self._try_place_task(
+                new_task, free_windows,
+                {i: w.usable_mins for i, w in enumerate(free_windows)},
+                {i: w.start_time  for i, w in enumerate(free_windows)},
+                energy_strict=False,
+                sequence=len(existing_scheduled),
+            )
+        return result
 
     # ── Timeline ──────────────────────────────────────────────
 
@@ -623,6 +682,7 @@ class ConstraintSolver:
                 slot_reasons=reasons,
                 goal_id=goal_id,
                 goal_rank_snapshot=goal_rank,
+                task_id=task.task_id,
             )
 
             window_remaining[idx]    -= (task.duration_mins + self.TRANSITION_MINS)
