@@ -110,4 +110,22 @@ export const scheduleApi = {
     );
     return response.data;
   },
+  
+  createAdHocTask: async (
+    data: { 
+      title: string; 
+      duration_mins: number; 
+      energy_required: string; 
+      priority?: number;
+      goal_id?: string | null;
+    },
+    signal?: AbortSignal
+  ): Promise<ScheduleResponse> => {
+    const response = await client.post(
+      '/tasks/adhoc',
+      data,
+      withIdempotency({ signal })
+    );
+    return response.data;
+  },
 };

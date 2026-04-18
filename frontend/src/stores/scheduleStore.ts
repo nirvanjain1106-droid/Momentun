@@ -34,6 +34,13 @@ interface ScheduleState {
   completeTask: (taskId: string, actual_duration_mins?: number, quality_rating?: number) => Promise<void>;
   parkTask: (taskId: string, reason: string | null) => Promise<void>;
   undoTask: (taskId: string) => Promise<void>;
+  createAdHocTask: (data: { 
+    title: string; 
+    duration_mins: number; 
+    energy_required: string; 
+    priority?: number;
+    goal_id?: string | null;
+  }) => Promise<void>;
   
   // Helpers
   rollbackPatch: (taskId: string) => void;
@@ -397,6 +404,21 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
       get().rollbackPatch(taskId);
       const msg = getErrorMessage(error, 'Network error');
       set({ error: `Failed to undo task action: ${msg}` });
+    }
+  },
+
+  createAdHocTask: async (data) => {
+    set({ isLoading: true, error: null });
+    try {
+      const newSchedule = await scheduleApi.createAdHocTask(data);
+      set({ schedule: newSchedule, isLoading: false });
+      
+      // Also update IDB cache
+      await idbCache.setItem('today_schedule', newSchedule);
+    } catch (error: unknown) {
+      const msg = getErrorMessage(error, 'Failed to create task');
+      set({ error: msg, isLoading: false });
+      throw error;
     }
   },
 }));

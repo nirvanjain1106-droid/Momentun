@@ -13,6 +13,7 @@ Fixes from architecture review:
 
 import asyncio
 import logging
+import time
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional, List
 import uuid
@@ -248,11 +249,13 @@ async def generate_schedule(
         chronotype=behavioural.chronotype,
     )
 
+    start_time = time.perf_counter_ns()
     solver_result = solver.solve(
         target_date=target_date,
         goal_task_groups=goal_task_groups,
         day_type=data.day_type or "standard",
     )
+    latency_ms = (time.perf_counter_ns() - start_time) // 1_000_000
 
     # LLM enrichment — portfolio-level narrative
     enrichment = None
@@ -293,6 +296,7 @@ async def generate_schedule(
                 solver_result=solver_result,
                 enrichment=enrichment,
                 generation_prompt=prompt,
+                solver_latency_ms=latency_ms,
                 db=db,
             )
     except IntegrityError:
@@ -820,6 +824,7 @@ async def _save_schedule(
     enrichment: dict,
     generation_prompt: Optional[str],
     db: AsyncSession,
+    solver_latency_ms: Optional[int] = None,
 ) -> Schedule:
     """Save schedule + scheduled tasks + parked tasks (portfolio-level, no goal_id)."""
     schedule = Schedule(
@@ -831,6 +836,7 @@ async def _save_schedule(
         generated_by="ai",
         model_used="openrouter/qwen3.5" if settings.OPENROUTER_API_KEY else "groq/llama-3.3-70b",
         generation_prompt=generation_prompt,
+        solver_latency_ms=solver_latency_ms,
     )
     db.add(schedule)
     await db.flush()
@@ -1013,6 +1019,7 @@ async def _build_schedule_response(
         total_study_mins=total_study_mins,
         day_capacity_hrs=day_capacity_hrs,
         is_stale=schedule.is_stale,
+        solver_latency_ms=schedule.solver_latency_ms,
     )
 
 

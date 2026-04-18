@@ -253,6 +253,7 @@ class Schedule(Base):
     )
     model_used: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     generation_prompt: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    solver_latency_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     # Stale flag — lazy invalidation for schedule regeneration
     is_stale: Mapped[bool] = mapped_column(

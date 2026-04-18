@@ -182,6 +182,7 @@ class AdHocTaskRequest(BaseModel):
     priority: int = 2
     description: Optional[str] = None
     task_type: str = "general"
+    goal_id: Optional[uuid.UUID] = None
 
     @field_validator("priority")
     @classmethod

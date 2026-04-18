@@ -85,6 +85,7 @@ class ScheduleResponse(BaseModel):
     recovery_mode: bool = False      # True when returning after missed days
     is_paused: bool = False          # True when user is in sick/vacation mode
     is_stale: bool = False           # True when rank/goal changes haven't been reflected yet
+    solver_latency_ms: Optional[int] = None
 
     model_config = {"from_attributes": True}
 

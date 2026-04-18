@@ -64,6 +64,7 @@ class TaskRequirement:
     priority: int         # 1=Core, 2=Normal, 3=Bonus
     subject: Optional[str] = None
     task_id: Optional[str] = None
+    goal_id: Optional[str] = None
 
 
 @dataclass
@@ -269,6 +270,7 @@ class ConstraintSolver:
             {i: w.usable_mins for i, w in enumerate(free_windows)},
             {i: w.start_time  for i, w in enumerate(free_windows)},
             energy_strict=True,
+            goal_id=new_task.goal_id,
             sequence=len(existing_scheduled),
         )
         if not result:
@@ -277,6 +279,7 @@ class ConstraintSolver:
                 {i: w.usable_mins for i, w in enumerate(free_windows)},
                 {i: w.start_time  for i, w in enumerate(free_windows)},
                 energy_strict=False,
+                goal_id=new_task.goal_id,
                 sequence=len(existing_scheduled),
             )
         return result

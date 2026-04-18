@@ -1,12 +1,15 @@
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { useGoalStore } from '../../stores/goalStore';
+import { useScheduleStore } from '../../stores/scheduleStore';
 
 const taskSchema = z.object({
   title: z.string().min(1, 'Title is required').max(100, 'Title is too long'),
   duration_mins: z.number().int().min(5, 'Minimum 5 minutes').max(240, 'Maximum 4 hours'),
   energy_required: z.enum(['low', 'medium', 'high']),
   is_mvp_task: z.boolean(),
+  goal_id: z.string().nullable().optional(),
 });
 
 type TaskFormData = z.infer<typeof taskSchema>;
@@ -25,24 +28,23 @@ export function QuickAddModal({ isOpen, onClose }: QuickAddModalProps) {
       is_mvp_task: false,
     }
   });
-
-  // useScheduleStore can be used here later for actual creation
-  // const { createTask } = useScheduleStore();
+  
+  const { goals } = useGoalStore();
+  const { createAdHocTask } = useScheduleStore();
 
   if (!isOpen) return null;
 
   const onSubmit = async (data: TaskFormData) => {
     try {
-      // Assuming a create endpoint in scheduleStore/Api
-      // This enforces Zod boundaries for UI state.
-      console.log('Validated Task Payload:', data);
-      
-      // Later this will call scheduleApi.createTask
+      await createAdHocTask({
+        ...data,
+        goal_id: data.goal_id || null,
+      });
       
       reset();
       onClose();
     } catch (err) {
-      console.error(err);
+      console.error('Failed to add ad-hoc task:', err);
     }
   };
 
@@ -89,6 +91,25 @@ export function QuickAddModal({ isOpen, onClose }: QuickAddModalProps) {
                 <option value="high">High (Deep Work)</option>
               </select>
             </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Link to Goal (Optional)
+            </label>
+            <select
+              {...register('goal_id')}
+              className="w-full border border-gray-300 dark:border-gray-600 rounded p-2 bg-transparent focus:ring-2 focus:ring-brand-500 text-gray-800 dark:text-gray-100"
+            >
+              <option value="">No goal (Ad-hoc)</option>
+              {goals
+                .filter((g) => g.status === 'active')
+                .map((goal) => (
+                  <option key={goal.id} value={goal.id}>
+                    {goal.title}
+                  </option>
+                ))}
+            </select>
           </div>
 
           <div className="flex items-center gap-2 mt-2">

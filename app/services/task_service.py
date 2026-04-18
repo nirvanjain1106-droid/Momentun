@@ -638,7 +638,7 @@ async def create_ad_hoc_task(
     # 1. Create the task in DB
     task = Task(
         user_id=user_id,
-        goal_id=None,
+        goal_id=data.goal_id,
         schedule_id=None,
         title=data.title.strip(),
         description=data.description,
@@ -676,6 +676,7 @@ async def create_ad_hoc_task(
             duration_mins=task.duration_mins,
             energy_required=task.energy_required,
             priority=task.priority,
+            goal_id=str(task.goal_id) if task.goal_id else None,
         )
 
         existing_scheduled = []
