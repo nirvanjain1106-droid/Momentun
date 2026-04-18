@@ -601,28 +601,9 @@ async def _handle_stale_schedule(
     await db.flush()
 
     try:
-        # Regenerate: defer non-completed/non-expired tasks
-        tasks_result = await db.execute(
-            select(Task).where(
-                and_(
-                    Task.schedule_id == schedule.id,
-                    Task.task_status.notin_(["completed", "expired"]),
-                    Task.deleted_at.is_(None),
-                )
-            )
-        )
-        for task in tasks_result.scalars().all():
-            task.previous_status = task.task_status
-            task.task_status = "deferred"
-            task.schedule_id = None
-            task.scheduled_start = None
-            task.scheduled_end = None
-
-        # Soft-delete old schedule
-        schedule.deleted_at = now_utc
-        await db.flush()
-
         # Generate fresh
+        # Note: generate_schedule internally handles soft-deletion of the existing one
+        # via _save_schedule and _get_existing_schedule (which filters deleted_at IS NULL).
         await generate_schedule(
             user,
             GenerateScheduleRequest(target_date=today.isoformat(), use_llm=False),
@@ -642,14 +623,14 @@ async def _handle_stale_schedule(
         return schedule  # fallback
 
     except Exception:
-        logger.exception("stale_regen_failed", extra={
+        logger.exception("stale_regen_recovery_failed", extra={
             "user_id": str(user.id),
             "schedule_id": str(schedule.id),
         })
         # Release the lock on failure
         schedule.is_regenerating = False
         schedule.regeneration_started_at = None
-        schedule.deleted_at = None  # Undelete
+        schedule.deleted_at = None  # Undelete to keep it visible
         await db.flush()
         return schedule
 

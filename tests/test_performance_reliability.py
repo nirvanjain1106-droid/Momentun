@@ -121,7 +121,7 @@ async def test_stale_lock_recovery(async_client, setup_test_user, test_db):
 
     # 2. Poison the DB with a stale lock
     from datetime import timezone as tz
-    stale_time = datetime.now(tz.utc) - timedelta(seconds=70)
+    stale_time = datetime.now(tz.utc) - timedelta(seconds=300)
     schedule = Schedule(
         user_id=user.id,
         schedule_date=date.today(),
