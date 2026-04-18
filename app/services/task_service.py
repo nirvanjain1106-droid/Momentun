@@ -30,6 +30,7 @@ from app.schemas.tasks import (
     ParkedTaskDetailResponse,
     ParkedTasksListResponse,
     BulkDeleteResponse,
+    AdHocTaskRequest,
 )
 
 from app.core.constants import PRIORITY_LABELS
@@ -625,4 +626,99 @@ async def quick_add_task(
     logger.info("task_quick_added", extra={
         "task_id": str(task.id), "user_id": str(user_id), "title_hash": _pii_hash(title),
     })
+    return _build_task_response(task)
+
+
+async def create_ad_hoc_task(
+    user_id: uuid.UUID,
+    data: AdHocTaskRequest,
+    db: AsyncSession,
+) -> TaskDetailResponse:
+    """Implement Step 4: Add goal-less task to today's schedule gap if possible."""
+    # 1. Create the task in DB
+    task = Task(
+        user_id=user_id,
+        goal_id=None,
+        schedule_id=None,
+        title=data.title.strip(),
+        description=data.description,
+        task_type=data.task_type or "general",
+        duration_mins=data.duration_mins,
+        energy_required=data.energy_required,
+        priority=data.priority,
+        is_mvp_task=False,
+        sequence_order=999,
+        task_status="parked", # Default status before attempt to fit
+    )
+    db.add(task)
+    await db.flush()
+
+    # 2. Try to fit into today's schedule
+    today = date.today()
+    # Check if today's schedule exists
+    result = await db.execute(
+        select(Schedule).options(selectinload(Schedule.tasks)).where(
+            and_(
+                Schedule.user_id == user_id,
+                Schedule.schedule_date == today,
+            )
+        )
+    )
+    existing_schedule = result.scalar_one_or_none()
+
+    if existing_schedule:
+        from app.services.schedule_service import build_solver_for_user
+        
+        req = TaskRequirement(
+            task_id=str(task.id),
+            title=task.title,
+            task_type=task.task_type,
+            duration_mins=task.duration_mins,
+            energy_required=task.energy_required,
+            priority=task.priority,
+        )
+
+        existing_scheduled = []
+        completed_task_ids = set()
+        for t in existing_schedule.tasks:
+            if t.task_status == "completed":
+                completed_task_ids.add(str(t.id))
+            if t.task_status not in ("active", "completed", "expired"):
+                continue
+            if not t.scheduled_start or not t.scheduled_end:
+                continue
+            existing_scheduled.append(ScheduledTask(
+                task_id=str(t.id),
+                title=t.title,
+                task_type=t.task_type,
+                duration_mins=t.duration_mins,
+                energy_required=t.energy_required,
+                scheduled_start=t.scheduled_start,
+                scheduled_end=t.scheduled_end,
+                priority=t.priority,
+                is_mvp_task=t.is_mvp_task,
+                sequence_order=t.sequence_order
+            ))
+
+        solver = await build_solver_for_user(user_id, today, db)
+        placement = solver.fit_single_task(
+            req, 
+            existing_scheduled, 
+            today, 
+            completed_task_ids=completed_task_ids
+        )
+
+        if placement:
+            task.schedule_id = existing_schedule.id
+            task.task_status = "active"
+            task.scheduled_start = placement.scheduled_start
+            task.scheduled_end = placement.scheduled_end
+            logger.info("adhoc_task_fitted", extra={"task_id": str(task.id)})
+        else:
+            logger.info("adhoc_task_parked", extra={"task_id": str(task.id), "reason": "no_gap"})
+    else:
+        # No schedule for today, stays parked
+        logger.info("adhoc_task_parked", extra={"task_id": str(task.id), "reason": "no_schedule"})
+
+    await db.flush()
     return _build_task_response(task)

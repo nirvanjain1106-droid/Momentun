@@ -18,6 +18,11 @@ async def sse_events(
         async for event in event_bus.subscribe(str(user.id)):
             if await request.is_disconnected():
                 break
+            if event.get("event") == "comment":
+                # Spec-compliant SSE comment ping
+                yield f": {event['data']}\n\n"
+                continue
+
             try:
                 data_str = json.dumps(event.get("data", {}), default=str)
             except Exception as exc:

@@ -4,7 +4,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.services import task_service, checkin_service
 
-@pytest.mark.anyio
+@pytest.mark.asyncio
 async def test_user_a_cannot_access_user_b_goal(
     async_client: AsyncClient,
     test_db: AsyncSession,
@@ -38,7 +38,7 @@ async def test_user_a_cannot_access_user_b_goal(
     assert response.json()["detail"] == "Goal not found"
 
 
-@pytest.mark.anyio
+@pytest.mark.asyncio
 async def test_user_a_cannot_update_user_b_goal(
     async_client: AsyncClient,
     test_db: AsyncSession,
@@ -72,7 +72,7 @@ async def test_user_a_cannot_update_user_b_goal(
     assert response.status_code == 404
 
 
-@pytest.mark.anyio
+@pytest.mark.asyncio
 async def test_user_a_cannot_complete_user_b_task(
     async_client: AsyncClient,
     test_db: AsyncSession,
@@ -109,7 +109,7 @@ async def test_user_a_cannot_complete_user_b_task(
     assert response.json()["detail"] == "Task not found"
 
 
-@pytest.mark.anyio
+@pytest.mark.asyncio
 async def test_pii_redaction_audit_task_logs(mocker, test_db, setup_test_user):
     """Verify that task services do NOT log plaintext titles (PII Redaction Audit)."""
     user, token = setup_test_user
@@ -142,7 +142,7 @@ async def test_pii_redaction_audit_task_logs(mocker, test_db, setup_test_user):
         msg = args[0] if args else ""
         assert pii_title not in msg
 
-@pytest.mark.anyio
+@pytest.mark.asyncio
 async def test_pii_redaction_checkin_logs(mocker, test_db, setup_test_user):
     """Verify that checkin services do NOT log plaintext notes (PII Redaction Audit)."""
     user, _token = setup_test_user

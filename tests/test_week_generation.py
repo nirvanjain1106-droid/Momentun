@@ -8,7 +8,16 @@ from app.services import schedule_service
 
 
 class _FakeDB:
-    pass
+    def __init__(self, select_results=None):
+        self._results = list(select_results or [])
+        self.added = []
+    def add(self, obj):
+        self.added.append(obj)
+    async def flush(self): pass
+    async def commit(self): pass
+    async def rollback(self): pass
+    async def execute(self, _stmt):
+        return SimpleNamespace(scalars=lambda: SimpleNamespace(first=lambda: None))
 
 
 @pytest.mark.asyncio

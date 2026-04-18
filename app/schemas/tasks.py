@@ -174,6 +174,31 @@ class QuickAddRequest(BaseModel):
         return v
 
 
+class AdHocTaskRequest(BaseModel):
+    """Create a task that isn't tied to a specific goal, fitted into today's schedule."""
+    title: str
+    duration_mins: int = 30
+    energy_required: str = "medium"
+    priority: int = 2
+    description: Optional[str] = None
+    task_type: str = "general"
+
+    @field_validator("priority")
+    @classmethod
+    def valid_priority(cls, v: int) -> int:
+        if v not in (2, 3):
+            raise ValueError("Ad-hoc tasks must be priority 2 (Normal) or 3 (Bonus)")
+        return v
+
+    @field_validator("energy_required")
+    @classmethod
+    def valid_energy(cls, v: str) -> str:
+        allowed = {"low", "medium", "high"}
+        if v.lower() not in allowed:
+            raise ValueError(f"energy_required must be one of: {allowed}")
+        return v.lower()
+
+
 class TaskMutationResponse(BaseModel):
     """Aggregate response returned after a task mutation."""
     task: TaskDetailResponse

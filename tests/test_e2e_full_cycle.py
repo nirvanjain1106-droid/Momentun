@@ -5,7 +5,7 @@ from datetime import date
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-@pytest.mark.anyio
+@pytest.mark.asyncio
 async def test_full_day_flow_sick_day(
     async_client: AsyncClient,
     test_db: AsyncSession,
@@ -78,6 +78,8 @@ async def test_full_day_flow_sick_day(
         "evening_note": "Survived the day"
     }
     resp = await async_client.post("/api/v1/checkin/evening", headers=headers, json=review_data)
+    if resp.status_code == 422:
+        pytest.fail(f"Evening Review 422 Detail: {resp.text}")
     assert resp.status_code == 201
     
     # 6. Verify DailyLog stats (Insights)

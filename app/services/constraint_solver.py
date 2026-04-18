@@ -89,8 +89,8 @@ class ScheduledTask:
 @dataclass
 class GoalTaskGroup:
     """Tasks belonging to a single goal, with rank context."""
-    goal_id: str              # UUID as string (solver is DB-agnostic)
-    goal_rank: int            # 1 = highest priority
+    goal_id: Optional[str]    # UUID as string or None for ad-hoc
+    goal_rank: Optional[int]  # 1 = highest priority, or None for ad-hoc
     goal_title: str
     tasks: List[TaskRequirement] = field(default_factory=list)
 
@@ -576,8 +576,9 @@ class ConstraintSolver:
                     remaining_tasks.append((group.goal_rank, group.goal_id, task))
 
         # Sort: goal_rank ASC → priority ASC → energy order
+        # Use 999 as default rank for ad-hoc tasks so they don't block goal tasks
         remaining_tasks.sort(
-            key=lambda x: (x[0], x[2].priority, energy_order.get(x[2].energy_required, 1))
+            key=lambda x: (x[0] if x[0] is not None else 999, x[2].priority, energy_order.get(x[2].energy_required, 1))
         )
 
         unscheduled: List[TaskRequirement] = []

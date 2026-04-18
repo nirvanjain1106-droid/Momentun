@@ -1191,7 +1191,11 @@ async def get_streak(
     for log in reversed(ordered):
         if log.log_date != expected:
             break
-        if (log.completion_rate or 0.0) >= 0.6:
+        success_threshold = 0.6
+        if log.actual_day_type == "minimum_viable":
+            success_threshold = 0.1  # Any completion (>0) counts for MVP days
+
+        if (log.completion_rate or 0.0) >= success_threshold:
             current += 1
             expected -= timedelta(days=1)
         else:
@@ -1204,7 +1208,11 @@ async def get_streak(
     for log in ordered:
         if prev_date and (log.log_date - prev_date).days != 1:
             streak = 0
-        if (log.completion_rate or 0.0) >= 0.6:
+        threshold = 0.6
+        if log.actual_day_type == "minimum_viable":
+            threshold = 0.1
+            
+        if (log.completion_rate or 0.0) >= threshold:
             streak += 1
             best = max(best, streak)
         else:

@@ -77,7 +77,7 @@ async def test_solver_loop_lag_audit(async_client, setup_test_user, test_db):
 
 
 @pytest.mark.asyncio
-async def test_db_timeout_resilience(async_client, setup_test_user, use_latency_proxy):
+async def test_db_timeout_resilience(use_latency_proxy, async_client, setup_test_user):
     """
     RELIABILITY AUDIT: Inject 500ms database latency.
     Verify the API remains responsive (within reasonable timeout limits).

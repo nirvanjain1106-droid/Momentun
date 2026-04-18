@@ -16,6 +16,7 @@ from app.schemas.tasks import (
     ParkedTasksListResponse,
     BulkDeleteResponse,
     QuickAddRequest,
+    AdHocTaskRequest,
     TaskMutationResponse,
 )
 from app.services import task_service, user_service, insights_service
@@ -279,3 +280,32 @@ async def quick_add_task(
     return await task_service.quick_add_task(
         current_user.id, data.title, data.duration_mins, data.goal_id, db
     )
+
+
+@router.post(
+    "/ad-hoc",
+    response_model=TaskDetailResponse,
+    status_code=201,
+    summary="Create an ad-hoc task",
+    description=(
+        "Create a task not tied to a specific goal. "
+        "Attempts to fit the task into today's schedule gaps. "
+        "If no gap found, the task is parked for later."
+    ),
+)
+async def create_ad_hoc_task(
+    data: AdHocTaskRequest,
+    current_user: CurrentUserComplete,
+    db: DB,
+) -> TaskDetailResponse:
+    task_res = await task_service.create_ad_hoc_task(current_user.id, data, db)
+    
+    # If the task was successfully fitted into a schedule, notify via SSE
+    if task_res.task_status == "active":
+        await event_bus.publish(str(current_user.id), {
+            "event": "schedule_updated",
+            "data": {"task_id": str(task_res.id), "action": "adhoc_fitted"},
+            "ts": datetime.now(timezone.utc).isoformat(),
+        })
+        
+    return task_res

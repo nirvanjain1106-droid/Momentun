@@ -325,7 +325,7 @@ async def _get_active_tasks_for_schedule(
             and_(
                 Task.schedule_id == schedule_id,
                 Task.user_id == user_id,
-                Task.task_status == "active",
+                Task.task_status.in_(["active", "completed"]),
                 Task.deleted_at.is_(None),
             )
         )

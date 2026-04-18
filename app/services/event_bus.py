@@ -33,14 +33,15 @@ class EventBus:
             while True:
                 # v5 B1: try/except INSIDE the loop — generator survives timeouts
                 try:
-                    event = await asyncio.wait_for(queue.get(), timeout=15.0)
+                    event = await asyncio.wait_for(queue.get(), timeout=20.0)
                     if event is None:
                         break
                     self._last_active[id(queue)] = time.monotonic()
                     yield event
                 except asyncio.TimeoutError:
                     # Heartbeat — keeps the connection alive through proxies (nginx/CF)
-                    yield {"event": "ping", "data": {}}
+                    # Using 'comment' type to signal router to emit : ping
+                    yield {"event": "comment", "data": "ping"}
         finally:
             if queue in queues:
                 queues.remove(queue)

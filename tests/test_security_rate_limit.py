@@ -5,6 +5,7 @@ from app.core.rate_limit import limiter
 # Pytest marker requires us to register 'security' in pytest.ini
 pytestmark = pytest.mark.security
 
+@pytest.mark.rate_limit_enabled
 @pytest.mark.asyncio
 async def test_auth_rate_limited_after_threshold(async_client: AsyncClient, redis_client, mocker):
     # Ensure a stable IP address for the limiter key function in test environment

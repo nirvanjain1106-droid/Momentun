@@ -1,130 +1,181 @@
-"""Shared test fixtures and utilities."""
+"""Shared test fixtures and utilities for Momentum API."""
 
 import asyncio
-import sys
-
-# Windows async fix for asyncpg/testcontainers
-if sys.platform == "win32":
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-
+import os
 import uuid
 import pytest
-import asyncio
+import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
 from types import SimpleNamespace
 from datetime import timedelta
-
-from testcontainers.postgres import PostgresContainer
+from sqlalchemy.pool import NullPool
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
-from app.main import app
-from app.database import Base, get_db
-from app.models.user import User, UserBehaviouralProfile, UserSettings
-from app.core.security import hash_password, create_access_token
+# Force testing environment early
+os.environ["APP_ENV"] = "testing"
 
 # ── Chaos Proxy: Latency Injection ────────────────────────────
+
 class LatencyAsyncSession(AsyncSession):
     """
     Proxy session that injects artificial latency into DB operations.
     Controlled via app.state.db_latency_ms.
     """
+    def __init__(self, *args, **kwargs):
+        self._latency_ms = kwargs.pop("latency_ms", 0)
+        super().__init__(*args, **kwargs)
+
     async def execute(self, statement, params=None, **kw):
-        delay = getattr(app.state, "db_latency_ms", 0)
-        if delay > 0:
-            await asyncio.sleep(delay / 1000.0)
+        if self._latency_ms > 0:
+            await asyncio.sleep(self._latency_ms / 1000.0)
         return await super().execute(statement, params, **kw)
 
+# ── Infrastructure: Session-Scoped Loop Compatibility ──────────
 
-@pytest.fixture(scope="function")
-def postgres_container():
-    """Start a real PostgreSQL container for the test."""
+@pytest_asyncio.fixture(scope="session")
+async def db_engine():
+    """
+    Create a session-scoped engine using a real Postgres container.
+    Using NullPool ensures connections are freshly bound to the current loop,
+    preventing state leakage and 'different loop' errors across test functions.
+    """
+    from testcontainers.postgres import PostgresContainer
+    from app.database import Base
+    import app.models  # noqa: F401 # MANDATORY: Ensures all tables are registered before create_all()
+    
     with PostgresContainer("postgres:16-alpine") as postgres:
-        # get_connection_url might be postgresql:// or postgresql+psycopg2://
         raw_url = postgres.get_connection_url()
-        # Clean up any driver and force asyncpg
         url = raw_url.split("://")[1]
         async_url = f"postgresql+asyncpg://{url}"
-        yield async_url
+        
+        engine = create_async_engine(
+            async_url, 
+            echo=False, 
+            poolclass=NullPool
+        )
+        
+        # Initialize schema once for the session
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+            
+        yield engine
+        
+        await engine.dispose()
 
-@pytest.fixture(scope="function")
-async def db_engine(postgres_container):
-    """Create a engine for the real Postgres container."""
-    engine = create_async_engine(postgres_container, echo=False)
-    
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    
-    yield engine
-    await engine.dispose()
-
-@pytest.fixture(scope="function")
-async def test_db(db_engine):
-    """Provide a fresh session for each test, wrapped in a transaction."""
-    # We use a nested transaction (savepoint) if possible, but for chaos tests,
-    # a clean flush/rollback or metadata cleanup is safer.
+@pytest_asyncio.fixture(scope="function")
+async def test_db(db_engine, app_instance):
+    """
+    Provide function-scoped DB session.
+    Bound directly to the engine to allow multiple parallel sessions (for concurrency tests).
+    Cleanup is handled via the separate db_cleanup fixture using TRUNCATE CASCADE.
+    """
+    # Inject latency if configured
+    latency = getattr(app_instance.state, "db_latency_ms", 0)
     
     session_factory = async_sessionmaker(
-        db_engine, 
-        expire_on_commit=False, 
-        class_=LatencyAsyncSession # Use our latency proxy
-    )
-    
-    async with session_factory() as session:
-        yield session
-        await session.rollback() # Clean up after each test
-
-
-# ── Client ────────────────────────────────────────────────────
-
-@pytest.fixture(scope="function")
-async def async_client(test_db, db_engine):
-    """FastAPI test client with DB override."""
-    
-    # Default latency is 0
-    app.state.db_latency_ms = 0
-    
-    session_factory = async_sessionmaker(
-        db_engine, 
-        expire_on_commit=False, 
+        bind=db_engine,
+        expire_on_commit=False,
         class_=LatencyAsyncSession
     )
+    
+    async with session_factory(latency_ms=latency) as session:
+        yield session
+        # We don't necessarily need rollback here because db_cleanup handles it,
+        # but it's good practice for isolation in case cleanup fails.
+        if session.is_active:
+            await session.rollback()
 
+@pytest_asyncio.fixture(scope="function", autouse=True)
+async def db_cleanup(db_engine):
+    """
+    Nuclear cleanup fixture: Truncates all tables in the correct order.
+    Ensures absolute isolation between tests even when they commit.
+    """
+    from app.database import Base
+    from sqlalchemy import text
+    yield
+    
+    async with db_engine.begin() as conn:
+        # Get all table names from MetaData
+        table_names = [f'"{t.name}"' for t in Base.metadata.sorted_tables]
+        if table_names:
+            # CASCADE handles foreign key order automatically
+            await conn.execute(text(f"TRUNCATE {', '.join(table_names)} RESTART IDENTITY CASCADE"))
+
+@pytest.fixture
+def use_latency_proxy(app_instance):
+    """Fixture to force DB latency for specific chaos/reliability tests."""
+    app_instance.state.db_latency_ms = 500
+    yield
+    app_instance.state.db_latency_ms = 0
+
+@pytest.fixture(scope="function")
+def app_instance():
+    """Get the FastAPI app instance."""
+    from app.main import app
+    # Reset state
+    app.state.db_latency_ms = 0
+    return app
+
+@pytest_asyncio.fixture(scope="function")
+async def async_client(db_engine, app_instance, request):
+    """ 
+    FastAPI test client with DB dependency overrides.
+    Yields a FRESH session from the pool for every request to support concurrency.
+    """
+    from app.database import get_db
+    
     async def override_get_db():
-        async with session_factory() as session:
+        latency = getattr(app_instance.state, "db_latency_ms", 0)
+        session_factory = async_sessionmaker(
+            bind=db_engine,
+            expire_on_commit=False,
+            class_=LatencyAsyncSession
+        )
+        async with session_factory(latency_ms=latency) as session:
             try:
                 yield session
                 await session.commit()
             except Exception:
                 await session.rollback()
                 raise
+            finally:
+                await session.close()
 
-    app.dependency_overrides[get_db] = override_get_db
+    app_instance.dependency_overrides[get_db] = override_get_db
     
-    # Enable/Disable Rate Limiting via app state if needed
-    app.state.limiter.enabled = False
-    
-    async with AsyncClient(
-        transport=ASGITransport(app=app), 
-        base_url="http://testserver",
-        follow_redirects=True
-    ) as client:
-        yield client
+    # Handle rate limiting: Disable unless explicitly requested via mark
+    marker = request.node.get_closest_marker("rate_limit_enabled")
+    if not marker and hasattr(app_instance.state, "limiter"):
+        app_instance.state.limiter.enabled = False
+        try:
+            async with AsyncClient(
+                transport=ASGITransport(app=app_instance), 
+                base_url="http://testserver",
+                follow_redirects=True
+            ) as ac:
+                yield ac
+        finally:
+            app_instance.state.limiter.enabled = True
+    else:
+        # Rate limiting remains enabled
+        async with AsyncClient(
+            transport=ASGITransport(app=app_instance), 
+            base_url="http://testserver",
+            follow_redirects=True
+        ) as ac:
+            yield ac
+        
+    app_instance.dependency_overrides.clear()
 
-    app.dependency_overrides.clear()
+# ── Auth & User Helpers ─────────────────────────────────────
 
-@pytest.fixture
-def use_latency_proxy():
-    """Enable DB latency via app state."""
-    app.state.db_latency_ms = 500
-    yield
-    app.state.db_latency_ms = 0
-
-
-# ── Specialized Security Fixtures ───────────────────────────
-
-@pytest.fixture(scope="function")
+@pytest_asyncio.fixture(scope="function")
 async def setup_test_user(test_db):
     """Create a standard user and return (user, token)."""
+    from app.models.user import User, UserBehaviouralProfile, UserSettings
+    from app.core.security import hash_password, create_access_token
+    
     uid = uuid.uuid4()
     user = User(
         id=uid,
@@ -133,10 +184,11 @@ async def setup_test_user(test_db):
         password_hash=hash_password("Password123!"),
         user_type="student",
         onboarding_complete=True,
+        onboarding_step=5,
+        timezone="Asia/Kolkata"
     )
     test_db.add(user)
     
-    # Needs settings and profile for some dependencies
     settings = UserSettings(user_id=uid, theme="light", preferred_model="primary")
     profile = UserBehaviouralProfile(
         user_id=uid,
@@ -151,13 +203,16 @@ async def setup_test_user(test_db):
     await test_db.flush()
     await test_db.commit()
     
+    # Note: create_access_token signature is (user_id, email, ...)
     token = create_access_token(user.id, user.email)
     return user, token
 
-
-@pytest.fixture(scope="function")
+@pytest_asyncio.fixture(scope="function")
 async def setup_second_user(test_db):
     """Create a second distinct user and return (user, token)."""
+    from app.models.user import User, UserBehaviouralProfile, UserSettings
+    from app.core.security import hash_password, create_access_token
+    
     uid = uuid.uuid4()
     user = User(
         id=uid,
@@ -166,6 +221,8 @@ async def setup_second_user(test_db):
         password_hash=hash_password("Password123!"),
         user_type="student",
         onboarding_complete=True,
+        onboarding_step=5,
+        timezone="Asia/Kolkata"
     )
     test_db.add(user)
     
@@ -186,36 +243,18 @@ async def setup_second_user(test_db):
     token = create_access_token(user.id, user.email)
     return user, token
 
+@pytest_asyncio.fixture(scope="function")
+async def redis_client():
+    """Mock redis client for rate limit tests when storage is memory://"""
+    from unittest.mock import AsyncMock
+    mock = AsyncMock()
+    mock.flushdb = AsyncMock()
+    return mock
 
-@pytest.fixture(scope="function")
-def redis_client(mocker):
-    """Mock Redis client for rate limit tests."""
-    class MockRedis:
-        def __init__(self):
-            self.storage = {}
-
-        async def flushdb(self):
-            self.storage = {}
-
-        async def get(self, key):
-            return self.storage.get(key)
-
-        async def setex(self, key, time, value):
-            self.storage[key] = value
-
-        async def incr(self, key):
-            val = int(self.storage.get(key, 0)) + 1
-            self.storage[key] = str(val)
-            return val
-
-    return MockRedis()
-
-
-# ── Legacy Handlers (Keep for backward compat) ────────────────
-
+# ── Standalone Unit Test Helpers ───────────────────────────
 
 def make_user(**overrides):
-    """Create a fake user object for tests."""
+    """Create a fake user object (SimpleNamespace) for unit tests."""
     defaults = {
         "id": uuid.uuid4(),
         "name": "Test User",
@@ -229,87 +268,59 @@ def make_user(**overrides):
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
 
-
 def make_goal(**overrides):
-    """Create a fake goal object for tests."""
+    """Create a fake goal object (SimpleNamespace) for unit tests."""
     from datetime import date
-
     defaults = {
         "id": uuid.uuid4(),
         "user_id": uuid.uuid4(),
         "title": "Test Goal",
+        "description": "Test Description",
         "goal_type": "exam",
-        "description": None,
-        "target_date": date.today() + timedelta(days=30),
-        "motivation": None,
-        "consequence": None,
-        "success_metric": None,
         "status": "active",
-        "goal_metadata": {"subjects": ["math", "physics"], "weak_subjects": ["math"], "strong_subjects": ["physics"]},
-        "deleted_at": None,
-        # Commit 3: multi-goal rank fields
-        "priority_rank": None,
+        "priority_rank": 1,
         "pre_pause_rank": None,
+        "target_date": date.today() + timedelta(days=30),
+        "motivation": "Test motivation",
+        "consequence": "Test consequence",
+        "success_metric": "Test metric",
+        "goal_metadata": {"subjects": ["math"], "weak_subjects": ["math"], "strong_subjects": []},
+        "deleted_at": None,
     }
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
 
 
 class FakeDB:
-    """Minimal fake async DB session for unit tests."""
-
+    """Minimal fake async DB session for local unit tests."""
     def __init__(self, select_results=None):
         self._results = list(select_results or [])
         self.added = []
-
     async def execute(self, _stmt):
         value = self._results.pop(0) if self._results else None
         return _FakeResult(value)
-
     def add(self, obj):
         self.added.append(obj)
-
     async def flush(self):
-        for obj in self.added:
+        for obj in getattr(self, "added", []):
             if hasattr(obj, "id") and getattr(obj, "id", None) is None:
                 setattr(obj, "id", uuid.uuid4())
-
-    async def commit(self):
-        pass
-
-    async def rollback(self):
-        pass
-
+    async def commit(self): pass
+    async def rollback(self): pass
+    def begin_nested(self):
+        class _Nested:
+            async def __aenter__(self): return self
+            async def __aexit__(self, *args): pass
+        return _Nested()
 
 class _FakeResult:
     def __init__(self, value):
         self._value = value
-
-    def scalar_one_or_none(self):
-        return self._value
-
-    def scalar(self):
-        """Return scalar value (for aggregate queries like COUNT, MAX)."""
-        return self._value
-
+    def scalar_one_or_none(self): return self._value
+    def scalar(self): return self._value
     def scalars(self):
         return self
-
     def all(self):
         if isinstance(self._value, list):
             return self._value
         return [self._value] if self._value else []
-
-
-def async_return(value):
-    """Create an async function that returns a fixed value."""
-    async def _inner(*_args, **_kwargs):
-        return value
-    return _inner
-
-
-def async_raise(exc):
-    """Create an async function that raises an exception."""
-    async def _inner(*_args, **_kwargs):
-        raise exc
-    return _inner

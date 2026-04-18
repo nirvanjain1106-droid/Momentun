@@ -16,8 +16,8 @@ class _FakeResult:
 
 
 class _FakeDB:
-    def __init__(self, select_results):
-        self._results = list(select_results)
+    def __init__(self, select_results=None):
+        self._results = list(select_results or [])
         self.added = []
 
     async def execute(self, _stmt):
@@ -31,6 +31,14 @@ class _FakeDB:
         for obj in self.added:
             if hasattr(obj, "id") and getattr(obj, "id", None) is None:
                 setattr(obj, "id", uuid.uuid4())
+
+    async def commit(self): pass
+    async def rollback(self): pass
+    def begin_nested(self):
+        class _Nested:
+            async def __aenter__(self): return self
+            async def __aexit__(self, *args): pass
+        return _Nested()
 
 
 @pytest.mark.asyncio

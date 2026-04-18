@@ -78,16 +78,18 @@ app.add_middleware(
 )
 
 # ── Prometheus Metrics (auto-instrumentation) ────────────────
-try:
-    from prometheus_fastapi_instrumentator import Instrumentator
-    Instrumentator(
-        should_group_status_codes=True,
-        should_ignore_untemplated=True,
-        excluded_handlers=["/health", "/metrics", "/"],
-    ).instrument(app).expose(app, endpoint="/metrics")
-    logger.info("prometheus_metrics_enabled at /metrics")
-except ImportError:
-    logger.warning("prometheus-fastapi-instrumentator not installed — metrics disabled")
+if settings.APP_ENV != "testing":
+    try:
+        from prometheus_fastapi_instrumentator import Instrumentator
+        Instrumentator(
+            should_group_status_codes=True,
+            should_ignore_untemplated=True,
+            excluded_handlers=["/health", "/metrics", "/"],
+        ).instrument(app).expose(app, endpoint="/metrics")
+        logger.info("prometheus_metrics_enabled at /metrics")
+    except ImportError:
+        logger.warning("prometheus-fastapi-instrumentator not installed — metrics disabled")
+
 
 # ── Routers ──────────────────────────────────────────────────
 app.include_router(auth.router,       prefix="/api/v1")
