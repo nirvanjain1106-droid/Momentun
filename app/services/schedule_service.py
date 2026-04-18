@@ -631,6 +631,12 @@ async def _handle_stale_schedule(
 
         # Fetch the new schedule
         new_schedule = await _get_existing_schedule(user.id, today, db)
+        
+        # Release the lock on the OLD schedule object before returning
+        schedule.is_regenerating = False
+        schedule.regeneration_started_at = None
+        await db.flush()
+
         if new_schedule:
             return new_schedule
         return schedule  # fallback

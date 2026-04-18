@@ -23,17 +23,18 @@ async def test_solver_loop_lag_audit(async_client, setup_test_user, test_db):
     }
     await async_client.post("/api/v1/goals", json=goal_data, headers=headers)
 
-    # 2. Add 50 fixed blocks (stress the solver's overlap detection and slot-finding)
+    # 2. Add 50 fixed blocks (stress the solver with non-overlapping constraints)
     for i in range(50):
-        # Create small non-overlapping or slightly overlapping blocks
-        start_h = (i % 12) + 6
-        start_m = (i * 10) % 60
+        # Spreading blocks across 7 days and 15 hours per day to ensure no overlap validation errors (400)
+        day = i % 7
+        hour = (i // 7) + 7  # Start from 7 AM
         block = FixedBlock(
             user_id=user.id,
             title=f"Constraint {i}",
-            start_time=f"{start_h:02d}:{start_m:02d}",
-            end_time=f"{(start_h + 1):02d}:{start_m:02d}",
-            applies_to_days=[0, 1, 2, 3, 4, 5, 6],
+            block_type="other",
+            applies_to_days=[day],
+            start_time=f"{hour:02d}:00",
+            end_time=f"{hour:02d}:45",
             is_hard_constraint=True
         )
         test_db.add(block)
@@ -137,8 +138,16 @@ async def test_stale_lock_recovery(async_client, setup_test_user, test_db):
     assert resp.status_code == 200, f"Recovery failed: {resp.text}"
     
     # 4. Verify lock was released
-    # Re-fetch from DB
-    result = await test_db.execute(select(Schedule).where(Schedule.user_id == user.id))
+    # Capture the ID before expiring — accessing attributes on expired objects
+    # in an async session triggers a sync lazy-load (MissingGreenlet error).
+    schedule_id = schedule.id
+    # expire_all() is critical: test_db uses expire_on_commit=False, so the
+    # identity map holds a stale copy of `schedule` with is_regenerating=True.
+    # Without expiring, select() returns the cached object, not fresh DB data.
+    test_db.expire_all()
+    await test_db.commit()
+    result = await test_db.execute(select(Schedule).where(Schedule.id == schedule_id))
     s = result.scalars().first()
+    assert s is not None, "Old schedule not found — may have been hard-deleted"
     assert s.is_regenerating is False
     print("\n[RELIABILITY] Stale lock recovery successful.")

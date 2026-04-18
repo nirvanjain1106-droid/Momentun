@@ -58,8 +58,8 @@ async def test_token_rotation_replay_detected(async_client: AsyncClient, test_db
     from datetime import datetime, timezone, timedelta
     for t in tokens:
         if t.used_at:
-            t.used_at = datetime.now(timezone.utc) - timedelta(seconds=6)
-    await test_db.flush()
+            t.used_at = datetime.now(timezone.utc) - timedelta(seconds=10)
+    await test_db.commit()
     
     # 2nd Refresh attempt with stolen token (Replay Attack)
     async_client.cookies.set("refresh_token", stolen_refresh_token)

@@ -36,7 +36,7 @@ HORIZON_GRACE_MINS = 15           # Grace window (minutes) before marking a task
 # calls generate_schedule with use_llm=False (pure solver, <1s).
 # If you ever add LLM enrichment to the stale regen path, this timeout
 # MUST be increased to accommodate LLM latency, or you'll get duplicate solves.
-REGEN_LOCK_TIMEOUT_SECS = 120    # Seconds before a stale regen lock is force-released
+REGEN_LOCK_TIMEOUT_SECS = 60     # Seconds before a stale regen lock is force-released
 
 # Pattern thresholds — minimum data points before triggering
 # Based on 2-week minimum data collection period
