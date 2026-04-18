@@ -50,7 +50,6 @@ from app.services.llm_service import (
 )
 from app.services import insights_service
 from app.services import goal_service
-from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -128,10 +127,24 @@ async def generate_schedule(
     target_date = (
         date.fromisoformat(data.target_date)
         if data.target_date
-        else date.today()
+        else get_user_today(user.timezone)
     )
 
     # Return existing schedule if already generated
+    # (Pre-check to avoid locking if not necessary)
+    existing = await _get_existing_schedule(user.id, target_date, db)
+    if existing:
+        return await _build_schedule_response(existing, user.id, db)
+
+    # 1. Acquire row-level lock on user to serialize generation (anti-thundering-herd)
+    # This prevents multiple concurrent requests for the same user from running
+    # the expensive Constraint Solver and LLM logic simultaneously.
+    await db.execute(
+        select(User).where(User.id == user.id).with_for_update()
+    )
+
+    # 2. Re-check for existing schedule after lock acquisition
+    # Another request may have just finished creating it while we were waiting for the lock.
     existing = await _get_existing_schedule(user.id, target_date, db)
     if existing:
         return await _build_schedule_response(existing, user.id, db)
@@ -271,19 +284,19 @@ async def generate_schedule(
         )
     enrichment = _sanitize_enrichment(enrichment, solver_result)
 
-    # Race-safe save
+    # Race-safe save using a savepoint to avoid rolling back the entire session
     try:
-        schedule = await _save_schedule(
-            user_id=user.id,
-            target_date=target_date,
-            solver_result=solver_result,
-            enrichment=enrichment,
-            generation_prompt=prompt,
-            db=db,
-        )
+        async with db.begin_nested():
+            schedule = await _save_schedule(
+                user_id=user.id,
+                target_date=target_date,
+                solver_result=solver_result,
+                enrichment=enrichment,
+                generation_prompt=prompt,
+                db=db,
+            )
     except IntegrityError:
         # Another request created this schedule concurrently
-        await db.rollback()
         existing = await _get_existing_schedule(user.id, target_date, db)
         if existing:
             return await _build_schedule_response(existing, user.id, db)
@@ -359,8 +372,8 @@ async def get_today_schedule(user: User, db: AsyncSession) -> ScheduleResponse:
         # ── Apply Horizon Line (expire past tasks) ──
         await _apply_horizon_line(user.id, existing, user.timezone, db)
 
-        # ── Stale contract: check if regeneration needed ──
-        if existing.is_stale:
+        # ── Stale contract: check if regeneration or lock recovery needed ──
+        if existing.is_stale or existing.is_regenerating:
             existing = await _handle_stale_schedule(user, existing, today, db)
 
         resp = await _build_schedule_response(existing, user.id, db)
@@ -426,7 +439,7 @@ async def get_week_schedule(
     if week_start:
         start_date = date.fromisoformat(week_start)
     else:
-        today      = date.today()
+        today      = get_user_today(user.timezone)
         start_date = today - timedelta(days=today.weekday())
 
     end_date    = start_date + timedelta(days=6)

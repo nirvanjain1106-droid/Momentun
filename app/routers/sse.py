@@ -3,7 +3,8 @@ from fastapi.responses import StreamingResponse
 from app.core.dependencies import get_current_user_from_cookie
 from app.services.event_bus import event_bus
 from app.models.user import User
-import json, logging
+import json
+import logging
 
 router = APIRouter(prefix="/sse", tags=["Real-Time"])
 logger = logging.getLogger(__name__)

@@ -44,7 +44,7 @@ interface WeeklyData {
 export default function InsightsPage() {
   const [streak, setStreak] = useState<StreakData | null>(null);
   const [weekly, setWeekly] = useState<WeeklyData | null>(null);
-  const [heatmapData, setHeatmapData] = useState<any | null>(null);
+  const [heatmapData, setHeatmapData] = useState<Record<string, number> | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {

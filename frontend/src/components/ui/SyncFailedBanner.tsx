@@ -11,7 +11,8 @@ export const SyncFailedBanner: React.FC = () => {
   };
 
   useEffect(() => {
-    checkQueue();
+    // Wrap initial check in a microtask to avoid synchronous setState in effect body
+    void Promise.resolve().then(() => checkQueue());
 
     const handleDeadLetter = () => {
       checkQueue();

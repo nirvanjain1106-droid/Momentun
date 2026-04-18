@@ -7,10 +7,9 @@ from typing import TYPE_CHECKING, Optional, List
 
 from sqlalchemy import (
     Boolean, CheckConstraint, DateTime, ForeignKey,
-    Integer, Numeric, String, Text,
-    ARRAY, func,
+    Integer, Numeric, String, Text, func,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base

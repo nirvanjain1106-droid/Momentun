@@ -93,7 +93,7 @@ async def get_weekly_insights(
     if week_start:
         start_date = date.fromisoformat(week_start)
     else:
-        today = date.today()
+        today = get_user_today(user.timezone)
         start_date = today - timedelta(days=today.weekday())
     end_date = start_date + timedelta(days=6)
 
@@ -112,7 +112,7 @@ async def get_weekly_insights(
         goal=goal,
         behavioural=behavioural,
         db=db,
-        as_of=min(date.today(), end_date),
+        as_of=min(get_user_today(user.timezone), end_date),
     )
 
     breakdown = _build_weekly_breakdown(start_date, logs)

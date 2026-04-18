@@ -27,18 +27,24 @@ async def test_user_a_cannot_access_user_b_goals(
         onboarding_complete=True
     )
     test_db.add(user_b)
+    await test_db.commit()
     
     # Auth as User B and create a goal
     from app.core.security import create_access_token
     token_b = create_access_token(user_b.id, user_b.email)
     
+    from datetime import date, timedelta
+    target_date = (date.today() + timedelta(days=30)).isoformat()
+    
     resp_b = await async_client.post("/api/v1/goals", json={
         "title": "User B Secret Goal",
-        "category": "academic",
-        "priority": "normal",
+        "goal_type": "exam",
+        "target_date": target_date,
         "description": "Secret"
     }, headers={"Authorization": f"Bearer {token_b}"})
     
+    # Check if creation succeeded before proceeding
+    assert resp_b.status_code == 201, f"Failed to create goal as User B: {resp_b.text}"
     goal_id = resp_b.json()["id"]
     
     # User A tries to read User B's goal

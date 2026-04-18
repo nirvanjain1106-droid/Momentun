@@ -189,7 +189,10 @@ async def refresh_access_token(raw_refresh_token: str, db: AsyncSession) -> dict
     if old_token is None or old_token.revoked_at is not None:
         raise HTTPException(status_code=401, detail="Token revoked or unknown")
 
-    elapsed = (datetime.now(timezone.utc) - old_token.used_at).total_seconds()
+    used_at = old_token.used_at
+    if used_at.tzinfo is None:
+        used_at = used_at.replace(tzinfo=timezone.utc)
+    elapsed = (datetime.now(timezone.utc) - used_at).total_seconds()
 
     if elapsed <= 5.0:
         logger.warning("token_grace_window_hit", extra={

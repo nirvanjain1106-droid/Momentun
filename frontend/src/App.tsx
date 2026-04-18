@@ -47,13 +47,18 @@ function App() {
   }, [setOffline]);
 
   useOfflineSync();
-  useSSE();
+  const { status: sseStatus } = useSSE();
 
   return (
     <BrowserRouter>
       <AuthGate>
         <AppShell>
           <SyncFailedBanner />
+          {sseStatus === 'evicted' && (
+            <div className="bg-amber-500/10 border-b border-amber-500/20 px-4 py-2 text-sm text-amber-500 text-center">
+              Real-time updates paused: Too many tabs open. Close others to reconnect.
+            </div>
+          )}
           <Suspense fallback={<PageSkeleton />}>
             <Routes>
               <Route path="/login" element={<LoginPage />} />

@@ -54,6 +54,7 @@ def create_refresh_token(user_id: uuid.UUID, family_id: uuid.UUID) -> str:
     payload = {
         "sub": str(user_id),
         "fid": str(family_id),
+        "jti": uuid.uuid4().hex,  # Ensure unique hash even in same-second rotation
         "type": "refresh",
         "exp": expire,
         "iat": datetime.now(timezone.utc),

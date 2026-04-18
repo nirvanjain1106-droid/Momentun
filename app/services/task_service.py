@@ -5,16 +5,22 @@ Complete, park, reschedule, undo, delete, bulk-delete.
 
 import uuid
 import logging
-from datetime import datetime, timezone, date, timedelta
-from typing import Optional, List
 import hmac
 import hashlib
+from datetime import datetime, timezone, date, timedelta
+from typing import Optional, List, TYPE_CHECKING
 
+if TYPE_CHECKING:
+    from app.models.goal import Task, TaskLog, DailyLog, Schedule
+    from app.services.constraint_solver import TaskRequirement, ScheduledTask
+
+from app.services.constraint_solver import TaskRequirement, ScheduledTask
 from app.config import settings
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy import select, and_, update
+from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException, status
 
 from app.models.goal import Task, TaskLog, DailyLog, Schedule
@@ -151,7 +157,6 @@ async def _find_next_available_date(
     max_lookahead_days: int = 3,
 ) -> Optional[date]:
     from app.services.schedule_service import build_solver_for_user
-    from app.services.constraint_solver import ScheduledTask
     
     for delta in range(1, max_lookahead_days + 1):
         candidate = start_date + timedelta(days=delta)
@@ -167,8 +172,10 @@ async def _find_next_available_date(
         existing_scheduled = []
         if existing:
             for t in existing.tasks:
-                if t.task_status not in ("active", "completed", "expired"): continue
-                if not t.scheduled_start or not t.scheduled_end: continue
+                if t.task_status not in ("active", "completed", "expired"):
+                    continue
+                if not t.scheduled_start or not t.scheduled_end:
+                    continue
                 existing_scheduled.append(ScheduledTask(
                     task_id=str(t.id),
                     title=t.title,
@@ -225,7 +232,6 @@ async def reschedule_task(
 
     if existing_schedule:
         from app.services.schedule_service import build_solver_for_user
-        from app.services.constraint_solver import TaskRequirement, ScheduledTask
         
         req = TaskRequirement(
             id=str(task.id),
@@ -241,8 +247,10 @@ async def reschedule_task(
         for t in existing_schedule.tasks:
             if t.task_status == "completed":
                 completed_task_ids.add(str(t.id))
-            if t.task_status not in ("active", "completed", "expired"): continue
-            if not t.scheduled_start or not t.scheduled_end: continue
+            if t.task_status not in ("active", "completed", "expired"):
+                continue
+            if not t.scheduled_start or not t.scheduled_end:
+                continue
             existing_scheduled.append(ScheduledTask(
                 task_id=str(t.id),
                 title=t.title,
@@ -339,6 +347,16 @@ async def undo_task(
         "task_id": str(task_id), "user_id": str(user_id),
         "from": old_status, "to": task.task_status,
     })
+    return _build_task_response(task)
+
+
+async def get_task_detail(
+    user_id: uuid.UUID,
+    task_id: uuid.UUID,
+    db: AsyncSession,
+) -> TaskDetailResponse:
+    """Fetch a single task with ownership verification."""
+    task = await _get_user_task(user_id, task_id, db, for_update=False)
     return _build_task_response(task)
 
 
@@ -499,14 +517,13 @@ async def _get_or_create_daily_log(
     db: AsyncSession,
 ) -> DailyLog:
     """Get today's DailyLog or create a minimal one."""
-    result = await db.execute(
-        select(DailyLog).where(
-            and_(
-                DailyLog.user_id == user_id,
-                DailyLog.log_date == log_date,
-            )
+    stmt = select(DailyLog).where(
+        and_(
+            DailyLog.user_id == user_id,
+            DailyLog.log_date == log_date,
         )
     )
+    result = await db.execute(stmt)
     daily_log = result.scalar_one_or_none()
 
     if daily_log:
@@ -518,8 +535,20 @@ async def _get_or_create_daily_log(
         log_date=log_date,
         schedule_id=schedule_id,
     )
-    db.add(daily_log)
-    await db.flush()
+    
+    # Use nested transaction (savepoint) to handle concurrent creation safely
+    try:
+        async with db.begin_nested():
+            db.add(daily_log)
+            await db.flush()
+    except IntegrityError:
+        # Another request created it concurrently, nested transaction rolled back.
+        # Re-fetch the one created by the other request.
+        result = await db.execute(stmt)
+        daily_log = result.scalar_one_or_none()
+        if not daily_log:
+            raise # Should not happen if unique index exists
+            
     logger.info("daily_log_auto_created", extra={
         "user_id": str(user_id), "log_date": log_date.isoformat(),
     })

@@ -1,11 +1,11 @@
 import asyncio
 from sqlalchemy import select
-from app.database import SessionLocal
+from app.database import AsyncSessionLocal
 from app.models.user import User, UserBehaviouralProfile
 from app.services.auth_service import hash_password
 
 async def seed_e2e_user():
-    async with SessionLocal() as db:
+    async with AsyncSessionLocal() as db:
         # Check if test user exists
         stmt = select(User).where(User.email == "test@example.com")
         result = await db.execute(stmt)

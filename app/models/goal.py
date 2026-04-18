@@ -1,12 +1,17 @@
+from __future__ import annotations
 import uuid
 from datetime import date, datetime
-from typing import Optional, List
+from typing import Optional, List, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.models.user import User
+
 
 from sqlalchemy import (
     Boolean, CheckConstraint, Date, DateTime,
-    ForeignKey, Integer, String, Text, ARRAY, func,
+    ForeignKey, Integer, String, Text, func, Index, text,
 )
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.dialects.postgresql import UUID, JSONB, ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -75,9 +80,18 @@ class Goal(Base):
     )
 
     # Relationships
-    user: Mapped["User"] = relationship(back_populates="goals")  # noqa: F821
+    user: Mapped[User] = relationship(back_populates="goals")
     detected_patterns: Mapped[List["DetectedPattern"]] = relationship(
         back_populates="goal", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        Index(
+            "uq_goal_rank_per_user",
+            "user_id", "priority_rank",
+            unique=True,
+            postgresql_where=text("status='active' AND deleted_at IS NULL")
+        ),
     )
 
     # Partial unique index enforced in migration 005_multi_goal_portfolio:
@@ -145,7 +159,7 @@ class FixedBlock(Base):
     )
 
     # Relationship
-    user: Mapped["User"] = relationship(back_populates="fixed_blocks")  # noqa: F821
+    user: Mapped[User] = relationship(back_populates="fixed_blocks")
 
 
 class WeeklyPlan(Base):
@@ -263,6 +277,14 @@ class Schedule(Base):
 
     # Uniqueness enforced in migration 001_initial_schema:
     # uq_one_schedule_per_user_per_date ON schedules(user_id, schedule_date) WHERE deleted_at IS NULL
+    __table_args__ = (
+        Index(
+            "uq_one_schedule_per_user_per_date",
+            "user_id", "schedule_date",
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL")
+        ),
+    )
 
     # Relationships
     weekly_plan: Mapped[Optional["WeeklyPlan"]] = relationship(
@@ -308,7 +330,7 @@ class Task(Base):
         CheckConstraint(
             "task_type IN ("
             "'deep_study', 'light_review', 'exercise', "
-            "'practice', 'revision', 'break', 'admin', 'other')"
+            "'practice', 'revision', 'break', 'admin', 'other', 'general')"
         ),
         nullable=False,
     )
@@ -445,8 +467,11 @@ class DailyLog(Base):
     )
 
     __table_args__ = (
-        # One log per user per date
-        # Partial unique in migration
+        Index(
+            "uq_one_log_per_user_per_date",
+            "user_id", "log_date",
+            unique=True
+        ),
     )
 
     # Relationships

@@ -20,6 +20,9 @@ class EventBus:
         if len(queues) >= MAX_CONNECTIONS_PER_USER:
             oldest = queues.pop(0)
             self._last_active.pop(id(oldest), None)
+            # Signal eviction to the client
+            await oldest.put({"event": "evicted", "data": {"reason": "max_connections_reached"}})
+            # Signal termination to the generator
             await oldest.put(None)
 
         queue: asyncio.Queue = asyncio.Queue(maxsize=100)
