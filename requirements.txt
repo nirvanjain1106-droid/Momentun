@@ -30,7 +30,7 @@ prometheus-fastapi-instrumentator==7.0.0
 sentry-sdk[fastapi]==2.14.0
 
 # Utilities
-python-dotenv==1.0.1
+python-dotenv==1.2.2
 
 # Security
 cryptography==46.0.7
