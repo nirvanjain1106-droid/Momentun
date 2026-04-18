@@ -1,10 +1,7 @@
-import uuid
 import pytest
-import logging
 from datetime import date, timedelta
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.models.goal import Goal, Task, DailyLog
 from app.services import task_service, checkin_service
 
 @pytest.mark.anyio
@@ -83,6 +80,9 @@ async def test_user_a_cannot_complete_user_b_task(
     setup_second_user,
 ):
     """Verify IDOR protection for Task completion."""
+    _user_a, token_a = setup_test_user
+    _user_b, token_b = setup_second_user
+
     # User B creates a task via quick-add (needs no goal)
     payload_b = {
         "title": "User B Secret Task",
@@ -145,7 +145,7 @@ async def test_pii_redaction_audit_task_logs(mocker, test_db, setup_test_user):
 @pytest.mark.anyio
 async def test_pii_redaction_checkin_logs(mocker, test_db, setup_test_user):
     """Verify that checkin services do NOT log plaintext notes (PII Redaction Audit)."""
-    user, token = setup_test_user
+    user, _token = setup_test_user
     
     # Mock the logger in checkin_service
     mock_logger = mocker.patch("app.services.checkin_service.logger")

@@ -4,6 +4,7 @@ const POSTHOG_KEY = import.meta.env.VITE_POSTHOG_KEY;
 const POSTHOG_HOST = import.meta.env.VITE_POSTHOG_HOST || 'https://us.i.posthog.com';
 
 let isInitialized = false;
+type AnalyticsProperties = Record<string, unknown>;
 
 export const initAnalytics = () => {
     if (typeof window !== 'undefined' && POSTHOG_KEY && !isInitialized) {
@@ -20,13 +21,13 @@ export const initAnalytics = () => {
 };
 
 export const analytics = {
-    identify: (userId: string, properties?: Record<string, any>) => {
+    identify: (userId: string, properties?: AnalyticsProperties) => {
         if (isInitialized) {
             posthog.identify(userId, properties);
         }
     },
     
-    track: (eventName: string, properties?: Record<string, any>) => {
+    track: (eventName: string, properties?: AnalyticsProperties) => {
         if (isInitialized) {
             posthog.capture(eventName, properties);
         }

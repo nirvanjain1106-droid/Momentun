@@ -4,6 +4,7 @@ import { Flame, Activity, CheckCircle, TrendingUp, LineChart as ChartIcon } from
 import { useUIStore } from '../stores/uiStore';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { Heatmap } from '../components/dashboard/HeatMap';
+import type { HeatmapResponse } from '../components/dashboard/HeatMap';
 import { PageSkeleton } from '../components/ui/PageSkeleton';
 
 interface StreakData {
@@ -44,7 +45,7 @@ interface WeeklyData {
 export default function InsightsPage() {
   const [streak, setStreak] = useState<StreakData | null>(null);
   const [weekly, setWeekly] = useState<WeeklyData | null>(null);
-  const [heatmapData, setHeatmapData] = useState<Record<string, number> | null>(null);
+  const [heatmapData, setHeatmapData] = useState<HeatmapResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {

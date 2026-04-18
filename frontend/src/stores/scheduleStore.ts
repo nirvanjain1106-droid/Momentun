@@ -40,6 +40,35 @@ interface ScheduleState {
   removePatch: (taskId: string) => void;
 }
 
+type QueueableError = {
+  code?: string;
+  response?: {
+    status?: number;
+  };
+  message?: string;
+};
+
+function asQueueableError(error: unknown): QueueableError | null {
+  if (typeof error !== 'object' || error === null) {
+    return null;
+  }
+
+  return error as QueueableError;
+}
+
+function shouldQueueOptimisticError(error: QueueableError | null): boolean {
+  return !navigator.onLine || error?.code === 'ERR_NETWORK' || error?.response?.status === 409;
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  const queueableError = asQueueableError(error);
+  return queueableError?.message || fallback;
+}
+
 export const useScheduleStore = create<ScheduleState>((set, get) => ({
   schedule: null,
   dayScore: null,
@@ -183,9 +212,11 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
       });
       get().removePatch(taskId);
       
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const queueableError = asQueueableError(error);
+
       // Offline / Network Error or 409 Conflict => Handled by background queue later
-      if (!navigator.onLine || error.code === 'ERR_NETWORK' || error.response?.status === 409) {
+      if (shouldQueueOptimisticError(queueableError)) {
         import('../lib/offlineQueue').then(({ enqueueAction }) => {
           enqueueAction({
             type: 'complete',
@@ -199,7 +230,7 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
 
       // 4. Rollback Failure
       get().rollbackPatch(taskId);
-      const msg = error.message || 'Network error';
+      const msg = getErrorMessage(error, 'Network error');
       set({ error: `Failed to complete task: ${msg}` });
     }
   },
@@ -259,8 +290,10 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
       });
       get().removePatch(taskId);
       
-    } catch (error: any) {
-      if (!navigator.onLine || error.code === 'ERR_NETWORK' || error.response?.status === 409) {
+    } catch (error: unknown) {
+      const queueableError = asQueueableError(error);
+
+      if (shouldQueueOptimisticError(queueableError)) {
         import('../lib/offlineQueue').then(({ enqueueAction }) => {
           enqueueAction({
             type: 'park',
@@ -273,7 +306,7 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
       }
 
       get().rollbackPatch(taskId);
-      const msg = error.message || 'Network error';
+      const msg = getErrorMessage(error, 'Network error');
       set({ error: `Failed to park task: ${msg}` });
     }
   },
@@ -347,8 +380,10 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
       });
       get().removePatch(taskId);
       
-    } catch (error: any) {
-      if (!navigator.onLine || error.code === 'ERR_NETWORK' || error.response?.status === 409) {
+    } catch (error: unknown) {
+      const queueableError = asQueueableError(error);
+
+      if (shouldQueueOptimisticError(queueableError)) {
         import('../lib/offlineQueue').then(({ enqueueAction }) => {
           enqueueAction({
             type: 'undo',
@@ -360,7 +395,7 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
       }
 
       get().rollbackPatch(taskId);
-      const msg = error.message || 'Network error';
+      const msg = getErrorMessage(error, 'Network error');
       set({ error: `Failed to undo task action: ${msg}` });
     }
   },

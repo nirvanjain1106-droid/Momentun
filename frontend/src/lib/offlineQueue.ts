@@ -5,7 +5,7 @@ export type QueuedAction = {
   id: string;
   task_id: string;
   type: 'update' | 'delete' | 'complete' | 'park' | 'undo';
-  payload?: any;
+  payload?: unknown;
   retryCount: number;
   nextRetryAt?: number; // timestamp in ms
   timestamp: string;
@@ -17,6 +17,31 @@ export const DEAD_LETTER_KEY = 'dead_letter_queue';
 const MAX_RETRIES = 10;
 const BACKOFF_BASE_MS = 1000;
 const BACKOFF_MAX_MS = 30000;
+let isDraining = false;
+
+type ConflictServerState = {
+  task_status?: string;
+  deleted_at?: string | null;
+};
+
+type SyncError = {
+  response?: {
+    status?: number;
+    data?: {
+      detail?: {
+        server_state?: ConflictServerState;
+      };
+    };
+  };
+};
+
+function asSyncError(error: unknown): SyncError | null {
+  if (typeof error !== 'object' || error === null) {
+    return null;
+  }
+
+  return error as SyncError;
+}
 
 export async function enqueueAction(action: Omit<QueuedAction, 'id' | 'retryCount' | 'timestamp'>) {
   const queue = await getQueue();
@@ -61,9 +86,12 @@ async function updateAction(action: QueuedAction) {
 
 async function moveToDeadLetter(action: QueuedAction) {
   const dead = await getDeadLetterQueue();
+  const payload =
+    typeof action.payload === 'object' && action.payload !== null ? action.payload : {};
+
   dead.push({
     ...action,
-    payload: { ...action.payload, reason: `Failed after ${MAX_RETRIES} retries` },
+    payload: { ...payload, reason: `Failed after ${MAX_RETRIES} retries` },
   });
   await idbCache.setItem(DEAD_LETTER_KEY, dead);
 }
@@ -72,13 +100,13 @@ export async function retryDeadLetterQueue() {
   const dead = await getDeadLetterQueue();
   await clearDeadLetterQueue();
   for (const action of dead) {
-    // Re-enqueue without reason or old failure metadata
-    const { reason, failedAt, id, retryCount, timestamp, ...cleanAction } = action as any;
-    await enqueueAction(cleanAction);
+    await enqueueAction({
+      task_id: action.task_id,
+      type: action.type,
+      payload: action.payload,
+    });
   }
 }
-
-const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 // Status tracking to avoid double drain
 export async function drainQueue() {
@@ -147,14 +175,16 @@ async function attemptSync(action: QueuedAction): Promise<'success' | 'retry' | 
       await client.delete(`/tasks/${action.task_id}`);
     }
     return 'success';
-  } catch (error: any) {
-    if (error.response?.status === 409) {
-      const serverState = error.response.data?.detail?.server_state;
+  } catch (error: unknown) {
+    const syncError = asSyncError(error);
+
+    if (syncError?.response?.status === 409) {
+      const serverState = syncError.response.data?.detail?.server_state;
       if (serverState) {
         return handleConflict(action, serverState) ? 'conflict_resolved' : 'retry';
       }
     }
-    if (error.response?.status === 404) {
+    if (syncError?.response?.status === 404) {
       // Task already gone
       return 'conflict_resolved';
     }
@@ -162,7 +192,7 @@ async function attemptSync(action: QueuedAction): Promise<'success' | 'retry' | 
   }
 }
 
-function handleConflict(localAction: QueuedAction, serverState: any): boolean {
+function handleConflict(localAction: QueuedAction, serverState: ConflictServerState): boolean {
   if (serverState.task_status === 'completed') {
     // completed wins
     return true; 

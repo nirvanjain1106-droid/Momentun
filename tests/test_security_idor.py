@@ -1,8 +1,6 @@
 import pytest
 from httpx import AsyncClient
 import uuid
-from app.models.goal import Goal, Task, Schedule
-from sqlalchemy import select
 
 pytestmark = pytest.mark.security
 

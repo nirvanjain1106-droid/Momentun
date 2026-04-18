@@ -39,7 +39,7 @@ async def test_sse_eviction_chaos(setup_test_user):
     # Wait a bit for the 'None' to propagate through the consumer loop
     await asyncio.sleep(0.01)
     assert sub_tasks[0].done()
-    print(f"\n[SSE CHAOS] Eviction successful. Oldest subscriber task finished.")
+    print("\n[SSE CHAOS] Eviction successful. Oldest subscriber task finished.")
 
     # Cleanup
     for t in sub_tasks:
@@ -78,7 +78,7 @@ async def test_sse_heartbeat_integrity():
     Verify that if the queue is empty, it yields a 'ping'.
     """
     user_id = str(uuid.uuid4())
-    it = event_bus.subscribe(user_id)
+    event_bus.subscribe(user_id)
     
     # In event_bus.py, timeout is 15.0s. We'll mock it or just wait if doable.
     # Actually, we can't wait 15s in a fast test.

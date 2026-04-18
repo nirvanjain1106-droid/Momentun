@@ -1,8 +1,5 @@
 import pytest
 from httpx import AsyncClient
-import uuid
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import text
 
 # Pytest marker requires us to register 'security' in pytest.ini
 pytestmark = pytest.mark.security

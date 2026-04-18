@@ -1,5 +1,4 @@
 import asyncio
-import uuid
 import logging
 from collections import defaultdict
 from typing import AsyncIterator

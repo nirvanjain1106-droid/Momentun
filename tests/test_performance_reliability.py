@@ -1,11 +1,9 @@
 import pytest
 import asyncio
 import time
-import uuid
 from datetime import date, timedelta, datetime
 from sqlalchemy import select
-from app.models.goal import Schedule, Goal, FixedBlock
-from app.config import settings
+from app.models.goal import Schedule, FixedBlock
 
 @pytest.mark.asyncio
 async def test_solver_loop_lag_audit(async_client, setup_test_user, test_db):

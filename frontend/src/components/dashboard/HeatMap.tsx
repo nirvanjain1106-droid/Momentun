@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Flame, Smile } from 'lucide-react';
 
-interface HeatmapEntry {
+export interface HeatmapEntry {
   date: string;
   completion_rate: number | null;
   intensity: 'none' | 'low' | 'medium' | 'high';
@@ -10,7 +10,7 @@ interface HeatmapEntry {
   mood_score: number | null;
 }
 
-interface HeatmapResponse {
+export interface HeatmapResponse {
   entries: HeatmapEntry[];
   total_days: number;
   active_days: number;

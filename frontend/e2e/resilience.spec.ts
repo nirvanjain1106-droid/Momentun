@@ -21,7 +21,7 @@ test.describe('Real-time Resilience Audit (SSE)', () => {
     await expect(page.locator('text=Real-time updates paused')).not.toBeVisible();
   });
 
-  test('SSE Connection Eviction (Max 3 Tabs)', async ({ page, context, browser }) => {
+  test('SSE Connection Eviction (Max 3 Tabs)', async ({ page, context }) => {
     // We already have 1 tab (page)
     await page.goto('/dashboard');
     

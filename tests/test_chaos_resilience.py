@@ -1,8 +1,7 @@
 import pytest
 import asyncio
 import uuid
-from httpx import AsyncClient
-from app.models.goal import Schedule, Goal, DailyLog
+from app.models.goal import Schedule, Goal
 from app.services.schedule_service import _pii_hash
 from sqlalchemy import select
 
@@ -93,7 +92,7 @@ async def test_idor_cross_user_task_access(async_client, setup_test_user, setup_
 
     # User 2 creates a goal and schedule
     from datetime import date
-    from app.models.goal import Task, Goal, Schedule
+    from app.models.goal import Task, Schedule
     
     g2 = Goal(id=uuid.uuid4(), user_id=user2.id, title="Secret Goal", goal_type="exam", target_date=date.today())
     # Schedule must exist for tasks

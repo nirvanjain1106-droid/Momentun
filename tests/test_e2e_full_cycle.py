@@ -4,7 +4,6 @@ import pytest
 from datetime import date
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.models.goal import Goal
 
 @pytest.mark.anyio
 async def test_full_day_flow_sick_day(
@@ -35,7 +34,7 @@ async def test_full_day_flow_sick_day(
     if resp.status_code == 422:
         pytest.fail(f"Goal 422 Detail: {resp.text}")
     assert resp.status_code == 201, resp.text
-    goal_id = resp.json()["id"]
+    resp.json()["id"]
 
     # 2. Morning Checkin ('sick')
     checkin_data = {

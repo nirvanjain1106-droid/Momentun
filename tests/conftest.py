@@ -10,23 +10,16 @@ if sys.platform == "win32":
 import uuid
 import pytest
 import asyncio
-import json
-import sqlite3
 from httpx import AsyncClient, ASGITransport
 from types import SimpleNamespace
-from datetime import datetime, timezone, timedelta
+from datetime import timedelta
 
 from testcontainers.postgres import PostgresContainer
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy import text
-import alembic.config
-import alembic.command
-import os
 
 from app.main import app
 from app.database import Base, get_db
 from app.models.user import User, UserBehaviouralProfile, UserSettings
-from app.models.goal import Goal, WeeklyPlan, Schedule, Task, DailyLog, FixedBlock, TaskLog, DetectedPattern, LLMUsageLog, Feedback
 from app.core.security import hash_password, create_access_token
 
 # ── Chaos Proxy: Latency Injection ────────────────────────────
@@ -239,7 +232,7 @@ def make_user(**overrides):
 
 def make_goal(**overrides):
     """Create a fake goal object for tests."""
-    from datetime import date, timedelta
+    from datetime import date
 
     defaults = {
         "id": uuid.uuid4(),

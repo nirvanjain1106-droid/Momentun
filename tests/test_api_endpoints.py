@@ -5,9 +5,7 @@ import os
 os.environ.setdefault("SECRET_KEY", "test-secret-key-at-least-32-characters-long!!")
 
 import pytest
-from httpx import AsyncClient, ASGITransport
 
-from app.main import app
 
 
 

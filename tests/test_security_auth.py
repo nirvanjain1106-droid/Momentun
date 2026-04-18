@@ -1,6 +1,5 @@
 import pytest
 from httpx import AsyncClient
-import uuid
 from app.models.user import RefreshToken
 from sqlalchemy import select
 
