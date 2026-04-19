@@ -1,4 +1,3 @@
-import sys
 import re
 
 with open('old_schedule_service.py', 'r', encoding='utf-8') as f:

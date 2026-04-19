@@ -1,4 +1,3 @@
-import sys
 
 with open("app/services/schedule_service.py", "r", encoding="utf-8") as f:
     target_content = f.read()
