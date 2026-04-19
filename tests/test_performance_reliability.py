@@ -1,7 +1,7 @@
 import pytest
 import asyncio
 import time
-from datetime import date, timedelta, datetime
+from datetime import date, timedelta
 from sqlalchemy import select
 from app.models.goal import Schedule, FixedBlock
 
@@ -130,7 +130,6 @@ async def test_stale_lock_recovery(async_client, setup_test_user, test_db):
     test_db.add(schedule)
     await test_db.flush()
     await test_db.commit()
-    stale_id = schedule.id
 
     # 3. Requesting schedule should trigger regeneration via advisory lock
     resp = await async_client.get("/api/v1/schedule/today", headers=headers)

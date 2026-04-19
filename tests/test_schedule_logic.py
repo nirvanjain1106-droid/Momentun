@@ -10,11 +10,10 @@
 
 import uuid
 import pytest
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, timezone
 from types import SimpleNamespace
-from unittest.mock import patch, AsyncMock
 
-from tests.conftest import make_user, FakeDB
+from tests.conftest import FakeDB
 from app.services import schedule_service as schedule_mod
 
 
@@ -23,7 +22,7 @@ from app.services import schedule_service as schedule_mod
 
 def _make_frozen_datetime(year, month, day, hour, minute, tz_name="UTC"):
     """Create a datetime subclass that freezes now() to a specific time."""
-    from datetime import datetime as real_dt, timezone
+    from datetime import datetime as real_dt
     try:
         from zoneinfo import ZoneInfo
         tz = ZoneInfo(tz_name)
