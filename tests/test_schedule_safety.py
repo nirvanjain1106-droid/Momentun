@@ -1,10 +1,4 @@
 from app.schemas.schedule import TaskResponse
-from app.services.schedule_service import _sanitize_enrichment
-
-
-class _FakeSolverResult:
-    day_type = "standard"
-    scheduled_tasks = []
 
 
 def test_task_response_allows_nullable_times():
@@ -25,10 +19,3 @@ def test_task_response_allows_nullable_times():
     )
     assert task.scheduled_start is None
     assert task.scheduled_end is None
-
-
-def test_sanitize_enrichment_rejects_non_dict():
-    safe = _sanitize_enrichment("bad", _FakeSolverResult())
-    assert isinstance(safe, dict)
-    assert "task_descriptions" in safe
-

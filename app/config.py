@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     RATE_LIMIT_AUTH: str = "10/minute"
     RATE_LIMIT_SCHEDULE: str = "10/minute"
     RATE_LIMIT_LLM: str = "3/hour"  # Strict limit for LLM-triggering endpoints
+    SCHEDULE_REGEN_LOCK_TIMEOUT: int = 60
 
     # CORS
     ALLOWED_ORIGIN_REGEX: str = r"^https://momentum(-[a-z0-9]+)*\.vercel\.app$|^http://localhost:(5173|3000|8080)$"

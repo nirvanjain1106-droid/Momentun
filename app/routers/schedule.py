@@ -33,7 +33,7 @@ async def generate_schedule(
     current_user: CurrentUserComplete,
     db: DB,
 ) -> ScheduleResponse:
-    result = await schedule_service.generate_schedule(current_user, data, db)
+    result = await schedule_service.generate_schedule_orchestrator(current_user, data, db)
 
     await event_bus.publish(str(current_user.id), {
         "event": "schedule_updated",
@@ -99,7 +99,11 @@ async def regenerate_schedule(
     current_user: CurrentUserComplete,
     db: DB,
 ) -> ScheduleResponse:
-    result = await schedule_service.regenerate_today_schedule(current_user, db)
+    from app.core.timezone import get_user_today
+    target_date = get_user_today(current_user)
+    result = await schedule_service._generate_schedule_internal(
+        current_user, db, target_date, use_llm=True, force_regenerate=True
+    )
 
     await event_bus.publish(str(current_user.id), {
         "event": "schedule_updated",

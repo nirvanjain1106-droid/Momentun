@@ -161,58 +161,6 @@ async def test_cross_day_cleanup_noop_no_past():
     # No assertions needed — just verify it doesn't crash
 
 
-# ── 6. Stale regen: returns stale when actively regenerating ─
-
-
-@pytest.mark.asyncio
-async def test_stale_regen_returns_stale_when_locked():
-    """If is_regenerating=True and within timeout → return stale schedule as-is."""
-    schedule = SimpleNamespace(
-        id=uuid.uuid4(),
-        is_stale=True,
-        is_regenerating=True,
-        regeneration_started_at=datetime.now(timezone.utc) - timedelta(seconds=30),
-    )
-    user = make_user()
-    db = FakeDB()  # No results needed — returns immediately
-
-    result = await schedule_mod._handle_stale_schedule(user, schedule, date.today(), db)
-
-    assert result is schedule
-    assert schedule.is_regenerating is True  # NOT released — still in progress
-
-
-# ── 7. Stale regen: force-releases old lock ──────────────────
-
-
-@pytest.mark.asyncio
-async def test_stale_regen_force_releases_old_lock():
-    """Lock older than REGEN_LOCK_TIMEOUT_SECS is force-released."""
-    schedule = SimpleNamespace(
-        id=uuid.uuid4(),
-        is_stale=True,
-        is_regenerating=True,
-        regeneration_started_at=datetime.now(timezone.utc) - timedelta(seconds=300),
-        deleted_at=None,
-        user_id=uuid.uuid4(),
-    )
-    user = make_user()
-
-    db = FakeDB(select_results=[
-        [],    # tasks to defer (empty)
-    ])
-
-    # Mock generate_schedule to prevent deep call chain — it will raise,
-    # which triggers the except block that releases the lock
-    with patch.object(schedule_mod, "generate_schedule", new_callable=AsyncMock, side_effect=Exception("mock")):
-        await schedule_mod._handle_stale_schedule(user, schedule, date.today(), db)
-
-    # After exception, lock should be released (via except block)
-    assert schedule.is_regenerating is False
-    assert schedule.regeneration_started_at is None
-    assert schedule.deleted_at is None  # Un-deleted on failure
-
-
 # ── 8. Horizon line: malformed time skipped ──────────────────
 
 

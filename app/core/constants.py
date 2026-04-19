@@ -34,9 +34,9 @@ RESUME_RANK_POLICY = "bottom"     # "bottom" assigns lowest rank on resume
 HORIZON_GRACE_MINS = 15           # Grace window (minutes) before marking a task expired
 # IMPORTANT: The stale-regen path in schedule_service._handle_stale_schedule
 # calls generate_schedule with use_llm=False (pure solver, <1s).
-# If you ever add LLM enrichment to the stale regen path, this timeout
-# MUST be increased to accommodate LLM latency, or you'll get duplicate solves.
-REGEN_LOCK_TIMEOUT_SECS = 60     # Seconds before a stale regen lock is force-released
+# If you ever add LLM enrichment to the stale regen path, the config
+# SCHEDULE_REGEN_LOCK_TIMEOUT MUST be increased to accommodate LLM latency,
+# or you'll get duplicate solves.
 
 # Pattern thresholds — minimum data points before triggering
 # Based on 2-week minimum data collection period

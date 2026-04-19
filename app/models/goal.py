@@ -259,6 +259,11 @@ class Schedule(Base):
     is_stale: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False,
     )
+    
+    generation_version: Mapped[int] = mapped_column(
+        Integer, default=1, server_default="1", nullable=False,
+    )
+
     # Regeneration lock — prevents concurrent solver runs
     is_regenerating: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False,

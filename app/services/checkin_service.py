@@ -28,7 +28,7 @@ from app.schemas.checkin import (
     EveningReviewRequest, EveningReviewResponse,
 )
 from app.services.schedule_service import (
-    generate_schedule, GenerateScheduleRequest
+    generate_schedule_orchestrator, GenerateScheduleRequest
 )
 from app.services import insights_service
 
@@ -76,14 +76,14 @@ async def morning_checkin(
     # Generate schedule if needed
     if not today_schedule:
         try:
-            await generate_schedule(
-                user,
-                GenerateScheduleRequest(
+            await generate_schedule_orchestrator(
+                user=user,
+                data=GenerateScheduleRequest(
                     target_date=today.isoformat(),
                     day_type=day_type,
                     use_llm=False,  # fast for morning check-in
                 ),
-                db,
+                db=db,
             )
             # Reload
             today_schedule = await _get_todays_schedule(user.id, today, db)
