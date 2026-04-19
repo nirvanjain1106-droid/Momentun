@@ -104,13 +104,14 @@ async def test_db_timeout_resilience(use_latency_proxy, async_client, setup_test
 @pytest.mark.asyncio
 async def test_stale_lock_recovery(async_client, setup_test_user, test_db):
     """
-    RELIABILITY AUDIT: Force a stale generation lock.
-    If is_regenerating=True but started >60s ago, system should self-heal.
+    RELIABILITY AUDIT: Validate stale schedule self-healing.
+    In V8, advisory locks replace row flags. A schedule marked is_stale=True
+    should trigger regeneration via the advisory lock flow and return fresh data.
     """
     user, token = setup_test_user
     headers = {"Authorization": f"Bearer {token}"}
-    
-    # 1. Create a goal
+
+    # 1. Create a goal (required for schedule generation)
     goal_data = {
         "title": "Recovery Goal",
         "goal_type": "exam",
@@ -119,35 +120,47 @@ async def test_stale_lock_recovery(async_client, setup_test_user, test_db):
     }
     await async_client.post("/api/v1/goals", json=goal_data, headers=headers)
 
-    # 2. Poison the DB with a stale lock
-    from datetime import timezone as tz
-    stale_time = datetime.now(tz.utc) - timedelta(seconds=300)
+    # 2. Create a stale schedule in the DB
     schedule = Schedule(
         user_id=user.id,
         schedule_date=date.today(),
-        is_regenerating=True,
-        regeneration_started_at=stale_time
+        is_stale=True,
+        generation_version=1,
     )
     test_db.add(schedule)
     await test_db.flush()
     await test_db.commit()
+    stale_id = schedule.id
 
-    # 3. Requesting schedule should trigger self-healing
+    # 3. Requesting schedule should trigger regeneration via advisory lock
     resp = await async_client.get("/api/v1/schedule/today", headers=headers)
-    
-    assert resp.status_code == 200, f"Recovery failed: {resp.text}"
-    
-    # 4. Verify lock was released
-    # Capture the ID before expiring — accessing attributes on expired objects
-    # in an async session triggers a sync lazy-load (MissingGreenlet error).
-    schedule_id = schedule.id
-    # expire_all() is critical: test_db uses expire_on_commit=False, so the
-    # identity map holds a stale copy of `schedule` with is_regenerating=True.
-    # Without expiring, select() returns the cached object, not fresh DB data.
+
+    assert resp.status_code == 200, f"Stale recovery failed: {resp.text}"
+
+    # 4. Verify a fresh schedule now exists for today
+    # Capture user_id before expire_all triggers lazy load
+    uid = user.id
     test_db.expire_all()
     await test_db.commit()
-    result = await test_db.execute(select(Schedule).where(Schedule.id == schedule_id))
-    s = result.scalars().first()
-    assert s is not None, "Old schedule not found — may have been hard-deleted"
-    assert s.is_regenerating is False
-    print("\n[RELIABILITY] Stale lock recovery successful.")
+
+    # The response should contain a valid schedule
+    body = resp.json()
+    assert "id" in body, "Response missing schedule id"
+
+    # The returned schedule should NOT be the stale one
+    # (the system created a new row via the advisory lock path)
+    from sqlalchemy import and_
+    result = await test_db.execute(
+        select(Schedule).where(
+            and_(
+                Schedule.user_id == uid,
+                Schedule.schedule_date == date.today(),
+                Schedule.is_stale == False,  # noqa: E712
+            )
+        )
+    )
+    fresh = result.scalars().first()
+    assert fresh is not None, "No fresh schedule found after stale recovery"
+    assert fresh.generation_version >= 1, "Fresh schedule has invalid generation_version"
+
+    print("\n[RELIABILITY] Stale schedule recovery via advisory lock successful.")

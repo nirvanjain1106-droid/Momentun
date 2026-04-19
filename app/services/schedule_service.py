@@ -1,14 +1,15 @@
 """
-Schedule Service ΓÇö Commit 3 (Multi-Goal Portfolio)
+Schedule Service — V8 (Advisory Lock Architecture)
 
 Portfolio ownership: schedules are user-day scoped (no goal_id on Schedule).
 Tasks still belong to individual goals via task.goal_id.
 
-Fixes from architecture review:
+Concurrency: PostgreSQL advisory locks keyed by (user_id, target_date).
 - Cross-day cleanup: expire active tasks from past schedules
 - Horizon Line: uses scheduled_end in user timezone with grace window
-- Stale contract: is_stale + is_regenerating + regeneration_started_at (with crash recovery)
+- Stale contract: is_stale flag triggers re-generation via advisory lock
 - Parked tasks: filtered by active goal IDs, not bare user_id
+- Background LLM enrichment with generation_version guard
 """
 
 import asyncio
@@ -129,22 +130,53 @@ def _build_lock_key(user_id: uuid.UUID, target_date: date) -> int:
 
 @contextlib.asynccontextmanager
 async def _pinned_advisory_lock(db_engine, key: int):
-    """Acquire a PostgreSQL session-level advisory lock on a dedicated connection."""
-    async with db_engine.connect() as conn:
-        logger.info(f"Attempting advisory lock {key}")
-        result = await conn.execute(select(func.pg_try_advisory_lock(key)))
-        acquired = result.scalar()
-        if not acquired:
-            logger.info(f"Failed to acquire advisory lock {key}")
-            yield False
-            return
+    """Acquire a PostgreSQL session-level advisory lock on a dedicated session.
 
-        logger.info(f"Acquired advisory lock {key}")
+    Uses async_sessionmaker to create a fresh session on its own connection,
+    keeping the advisory lock independent of the caller's request session.
+
+    Design note: session-level locks (pg_try_advisory_lock) are intentional.
+    The lock must survive across transaction boundaries because the schedule
+    write happens on the caller's `db` session (separate transaction). The
+    transaction-scoped variant (pg_try_advisory_xact_lock) would release
+    when *this* session's transaction ends — before `db` commits — allowing
+    a second worker to acquire the lock prematurely.
+
+    Crash recovery: if the worker crashes before the finally block, the lock
+    leaks until the connection is recycled by the pool (idle timeout or
+    overflow eviction). pool_pre_ping does NOT release leaked locks — it
+    only detects broken TCP connections.
+    """
+    from sqlalchemy.ext.asyncio import async_sessionmaker as _asm
+
+    _factory = _asm(bind=db_engine, expire_on_commit=False)
+    # Manual session lifecycle: close immediately on non-acquisition
+    # so the loser's 20s polling loop doesn't hold an idle connection.
+    _session_ctx = _factory()
+    lock_session = await _session_ctx.__aenter__()
+    try:
+        logger.info(f"Attempting advisory lock {key}")
+        result = await lock_session.execute(select(func.pg_try_advisory_lock(key)))
+        acquired = result.scalar()
+    except Exception:
+        await _session_ctx.__aexit__(None, None, None)
+        raise
+
+    if not acquired:
+        logger.info(f"Failed to acquire advisory lock {key}")
+        await _session_ctx.__aexit__(None, None, None)  # free connection immediately
+        yield False
+        return
+
+    logger.info(f"Acquired advisory lock {key}")
+    try:
+        yield True
+    finally:
         try:
-            yield True
-        finally:
-            await conn.execute(select(func.pg_advisory_unlock(key)))
+            await lock_session.execute(select(func.pg_advisory_unlock(key)))
             logger.info(f"Released advisory lock {key}")
+        finally:
+            await _session_ctx.__aexit__(None, None, None)
 
 
 async def generate_schedule_orchestrator(
@@ -178,59 +210,41 @@ async def generate_schedule_orchestrator(
             # Actually run logic
             return await _generate_schedule_internal(user, data, db, target_date, existing)
         else:
-            # Wait for it
-            import time, asyncio
+            # Wait for winner to commit
             start = time.time()
-            from app.config import settings
             WAIT_WINDOW_SECS = getattr(settings, "SCHEDULE_REGEN_LOCK_TIMEOUT", 20.0)
             while time.time() - start < WAIT_WINDOW_SECS:
                 await asyncio.sleep(2.0)
                 fresh = await _get_existing_schedule(user.id, target_date, db)
-                if fresh and (not fresh.is_stale or fresh.generation_version > version_at_entry):
+                if fresh and not fresh.is_stale:
                     res = await _build_schedule_response(fresh, user.id, db)
                     res.schedule_status = "ready"
                     return res
-            if existing: 
+            if existing:
                 res = await _build_schedule_response(existing, user.id, db)
                 res.schedule_status = "stale_fallback"
                 return res
-            from fastapi import HTTPException
-            raise HTTPException(status_code=503, detail="Service busy generating schedule")
+            raise HTTPException(
+                status_code=status.HTTP_202_ACCEPTED,
+                detail="Schedule is being generated. Retry in a moment.",
+            )
 
 async def _generate_schedule_internal(
     user: User,
     data: GenerateScheduleRequest,
     db: AsyncSession,
     target_date: date,
-    existing: Optional[Schedule] = None
+    existing: Optional[Schedule] = None,
 ) -> ScheduleResponse:
-    target_date = (
-        date.fromisoformat(data.target_date)
-        if data.target_date
-        else get_user_today(user.timezone)
-    )
-
-    # Return existing schedule if already generated
-    # (Pre-check to avoid locking if not necessary)
-    existing = await _get_existing_schedule(user.id, target_date, db)
-    if existing:
-        return await _build_schedule_response(existing, user.id, db)
-
-    # 1. Acquire row-level lock on user to serialize generation (anti-thundering-herd)
-    # This prevents multiple concurrent requests for the same user from running
-    # the expensive Constraint Solver and LLM logic simultaneously.
-    await db.execute(
-        select(User).where(User.id == user.id).with_for_update()
-    )
-
-    # 2. Re-check for existing schedule after lock acquisition
-    # Another request may have just finished creating it while we were waiting for the lock.
-    existing = await _get_existing_schedule(user.id, target_date, db)
-    if existing:
-        return await _build_schedule_response(existing, user.id, db)
+    """
+    Core generation logic — called by the orchestrator after the advisory lock
+    is acquired. Assumes caller already verified no fresh schedule exists.
+    """
+    # Capture user_id eagerly to avoid MissingGreenlet if session expires user
+    user_id = user.id
 
     # Load required profiles
-    behavioural = await _get_behavioural_profile(user.id, db)
+    behavioural = await _get_behavioural_profile(user_id, db)
     if not behavioural:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -238,32 +252,27 @@ async def _generate_schedule_internal(
         )
 
     # Load health profile for solver capacity modifiers
-    health_profile = await _get_health_profile(user.id, db)
+    health_profile = await _get_health_profile(user_id, db)
     capacity_modifier = 1.0
-    max_block_mins = 90
-    avoid_afternoon_peak = False
+    max_block_mins = 90  # noqa: F841 — will be used when solver supports block limits
+    avoid_afternoon_peak = False  # noqa: F841 — will be used when solver supports afternoon guard
 
     if health_profile:
-        # Chronic fatigue ΓåÆ reduce capacity by 15%
         if health_profile.has_chronic_fatigue:
             capacity_modifier *= 0.85
-        # Poor sleep quality ΓåÆ reduce capacity by 10%
         if health_profile.sleep_quality == "poor":
             capacity_modifier *= 0.90
         elif health_profile.sleep_quality == "irregular":
             capacity_modifier *= 0.93
-        # Low sleep hours ΓåÆ additional reduction
         if health_profile.average_sleep_hrs and float(health_profile.average_sleep_hrs) < 6:
             capacity_modifier *= 0.90
-        # Focus difficulty ΓåÆ shorter blocks
         if health_profile.has_focus_difficulty:
-            max_block_mins = 30  # noqa: F841 ΓÇö will be used when solver supports block limits
-        # Afternoon crash ΓåÆ avoid high-energy tasks after 2 PM
+            max_block_mins = 30  # noqa: F841
         if health_profile.has_afternoon_crash:
-            avoid_afternoon_peak = True  # noqa: F841 ΓÇö will be used when solver supports afternoon guard
+            avoid_afternoon_peak = True  # noqa: F841
 
     # Multi-goal: fetch all active goals
-    active_goals = await goal_service.get_active_goals(user.id, db)
+    active_goals = await goal_service.get_active_goals(user_id, db)
     if not active_goals:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -273,19 +282,25 @@ async def _generate_schedule_internal(
     # Build GoalTaskGroups for the two-pass allocator
     goal_task_groups: List[GoalTaskGroup] = []
     primary_goal = active_goals[0]  # Highest ranked for LLM/insights context
+    active_patterns = []
+    trajectory = None
 
     for goal in active_goals:
-        active_patterns, trajectory = await insights_service.get_live_schedule_context(
+        patterns, traj = await insights_service.get_live_schedule_context(
             user=user,
             goal=goal,
             db=db,
             target_date=target_date,
         )
+        # Keep patterns/trajectory from primary goal for LLM prompt
+        if goal.id == primary_goal.id:
+            active_patterns = patterns
+            trajectory = traj
 
         task_requirements = _generate_task_requirements(
             goal,
             behavioural,
-            active_patterns,
+            patterns,
         )
 
         goal_task_groups.append(GoalTaskGroup(
@@ -295,12 +310,9 @@ async def _generate_schedule_internal(
             tasks=task_requirements,
         ))
 
-    fixed_blocks = await _get_fixed_blocks_for_date(user.id, target_date, db)
-
-    # Fix #8 ΓÇö warn if fixed blocks overlap
+    fixed_blocks = await _get_fixed_blocks_for_date(user_id, target_date, db)
     _check_block_overlaps(fixed_blocks)
 
-    # Convert to solver format
     solver_blocks = [
         FixedBlockData(
             title=b.title,
@@ -313,7 +325,6 @@ async def _generate_schedule_internal(
         for b in fixed_blocks
     ]
 
-    # Build solver with health-adjusted capacity
     adjusted_commitment = float(behavioural.daily_commitment_hrs) * capacity_modifier
 
     solver = ConstraintSolver(
@@ -336,42 +347,9 @@ async def _generate_schedule_internal(
     )
     latency_ms = (time.perf_counter_ns() - start_time) // 1_000_000
 
-    # LLM enrichment ΓÇö portfolio-level narrative
-
-    schedule = None # placeholder to be assigned in try block
-
-    # Race-safe save using a savepoint to avoid rolling back the entire session
-    try:
-        async with db.begin_nested():
-            schedule = await _save_schedule(
-                user_id=user.id,
-                target_date=target_date,
-                solver_result=solver_result,
-                enrichment=None, # will be filled in background
-                generation_prompt=prompt,
-                solver_latency_ms=latency_ms,
-                db=db,
-            )
-            # If we bumped version or refreshed it, ensure it's not stale
-            schedule.is_stale = False
-            schedule.generation_version = (existing.generation_version + 1) if existing else 1
-            await db.flush()
-    except IntegrityError:
-        # Another request created this schedule concurrently
-        existing = await _get_existing_schedule(user.id, target_date, db)
-        if existing:
-            return await _build_schedule_response(existing, user.id, db)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Schedule creation conflict. Please retry.",
-        )
-
-    res = await _build_schedule_response(schedule, user.id, db)
-    res.schedule_status = enrichment_status
-    return res
-
-
-    # V8 background LLM enrichment  
+    # Build LLM prompt before save (needed for generation_prompt column)
+    prompt = None
+    enrichment_status = "ready"
     if data.use_llm:
         days_until_deadline = (primary_goal.target_date - target_date).days
         prompt = build_schedule_prompt(
@@ -385,23 +363,64 @@ async def _generate_schedule_internal(
             active_patterns=active_patterns,
             trajectory=trajectory,
         )
-        # Background task instead of blocking!
-        from app.services.goal_service import enrich_schedule_with_llm
-        from app.config import settings
-        import asyncio
+        enrichment_status = "generating"
+
+    # Build fallback enrichment (used immediately; LLM enrichment overwrites later)
+    enrichment = build_fallback_enrichment(
+        solver_result, primary_goal.title,
+        (primary_goal.target_date - target_date).days,
+        active_patterns=active_patterns,
+        trajectory=trajectory,
+    )
+    enrichment = _sanitize_enrichment(enrichment, solver_result)
+
+    # Race-safe save using a savepoint
+    try:
+        async with db.begin_nested():
+            # Soft-delete the old schedule so the partial unique index
+            # (user_id, schedule_date) WHERE deleted_at IS NULL allows the INSERT
+            if existing:
+                existing.deleted_at = func.now()
+                await db.flush()
+
+            schedule = await _save_schedule(
+                user_id=user_id,
+                target_date=target_date,
+                solver_result=solver_result,
+                enrichment=enrichment,
+                generation_prompt=prompt,
+                solver_latency_ms=latency_ms,
+                db=db,
+            )
+            schedule.is_stale = False
+            schedule.generation_version = (
+                (existing.generation_version + 1) if existing else 1
+            )
+            await db.flush()
+    except IntegrityError:
+        await db.rollback()
+        existing = await _get_existing_schedule(user_id, target_date, db)
+        if existing:
+            return await _build_schedule_response(existing, user_id, db)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Schedule creation conflict. Please retry.",
+        )
+
+    # Fire background LLM enrichment (non-blocking)
+    if data.use_llm and prompt:
         asyncio.create_task(
             enrich_schedule_with_llm(
                 schedule_id=schedule.id,
                 generation_version=schedule.generation_version,
                 prompt=prompt,
-                groq_api_key=getattr(settings, "GROQ_API_KEY", "")
+                groq_api_key=getattr(settings, "GROQ_API_KEY", ""),
             )
         )
-        enrichment_status = "generating"
-    else:
-        prompt = None
-        enrichment = None
-        enrichment_status = "ready"
+
+    res = await _build_schedule_response(schedule, user_id, db)
+    res.schedule_status = enrichment_status
+    return res
 
 
 async def get_today_schedule(user: User, db: AsyncSession) -> ScheduleResponse:
@@ -440,13 +459,22 @@ async def get_today_schedule(user: User, db: AsyncSession) -> ScheduleResponse:
     last = last_log.scalar_one_or_none()
     recovery_mode = False
     if last and (today - last.log_date).days >= BANKRUPTCY_INACTIVITY_DAYS:
-        # Auto-park all pending tasks from missed days
+        # Auto-park active tasks from past schedules only (not today or future)
+        past_schedule_ids = select(Schedule.id).where(
+            and_(
+                Schedule.user_id == user.id,
+                Schedule.schedule_date < today,
+                Schedule.deleted_at.is_(None),
+            )
+        ).scalar_subquery()
+
         missed_tasks = await db.execute(
             select(Task).where(
                 and_(
                     Task.user_id == user.id,
                     Task.task_status == "active",
                     Task.deleted_at.is_(None),
+                    Task.schedule_id.in_(past_schedule_ids),
                 )
             )
         )
@@ -468,9 +496,15 @@ async def get_today_schedule(user: User, db: AsyncSession) -> ScheduleResponse:
         # ΓöÇΓöÇ Apply Horizon Line (expire past tasks) ΓöÇΓöÇ
         await _apply_horizon_line(user.id, existing, user.timezone, db)
 
-        # ΓöÇΓöÇ Stale contract: check if regeneration or lock recovery needed ΓöÇΓöÇ
-        if existing.is_stale or existing.is_regenerating:
-            existing = await _handle_stale_schedule(user, existing, today, db)
+        # ── Stale contract: re-generate via orchestrator if stale ──
+        if existing.is_stale:
+            resp = await generate_schedule_orchestrator(
+                user,
+                GenerateScheduleRequest(target_date=today.isoformat(), use_llm=False),
+                db,
+            )
+            resp.recovery_mode = recovery_mode
+            return resp
 
         resp = await _build_schedule_response(existing, user.id, db)
         resp.recovery_mode = recovery_mode
@@ -527,6 +561,14 @@ async def regenerate_today_schedule(user: User, db: AsyncSession) -> ScheduleRes
     )
 
 
+# Semaphore caps concurrent day-generation to avoid pool exhaustion.
+# After the fix below, each day uses 2 connections (day_db + lock_session).
+# With pool_size=10 + max_overflow=20 = 30 max, limiting to 3 concurrent
+# days uses at most 6 connections per week request, safe for ~4 concurrent
+# week requests before pool pressure.
+_WEEK_CONCURRENCY = asyncio.Semaphore(3)
+
+
 async def get_week_schedule(
     user: User,
     db: AsyncSession,
@@ -541,17 +583,25 @@ async def get_week_schedule(
     end_date    = start_date + timedelta(days=6)
     weekly_plan = await _get_or_create_weekly_plan(user, start_date, end_date, db)
 
-    # Fix #9 ΓÇö generate all 7 days in parallel
+    # Each day gets its own session to avoid concurrent mutation of a
+    # shared AsyncSession (identity map, flush queue, transaction state).
+    # Semaphore limits concurrency to prevent pool exhaustion.
     async def _generate_one(target: date) -> Optional[ScheduleResponse]:
-        try:
-            return await generate_schedule_orchestrator(
-                user,
-                GenerateScheduleRequest(target_date=target.isoformat(), use_llm=False),
-                db,
-            )
-        except Exception:
-            logger.exception("weekly_schedule_generation_failed", extra={"target_date": target.isoformat()})
-            return None
+        from app.database import AsyncSessionLocal
+        async with _WEEK_CONCURRENCY:
+            async with AsyncSessionLocal() as day_db:
+                try:
+                    result = await generate_schedule_orchestrator(
+                        user,
+                        GenerateScheduleRequest(target_date=target.isoformat(), use_llm=False),
+                        day_db,
+                    )
+                    await day_db.commit()
+                    return result
+                except Exception:
+                    await day_db.rollback()
+                    logger.exception("weekly_schedule_generation_failed", extra={"target_date": target.isoformat()})
+                    return None
 
     results = await asyncio.gather(*[
         _generate_one(start_date + timedelta(days=i)) for i in range(7)
@@ -615,10 +665,13 @@ async def _apply_horizon_line(
     """
     try:
         from zoneinfo import ZoneInfo
-        # On Windows without tzdata, ZoneInfo("UTC") fails.
         tz = ZoneInfo(user_tz)
     except Exception:
-        tz = timezone.utc if user_tz == "UTC" else None
+        # Fall back to UTC — not None — to avoid using server-local time.
+        # A user in Asia/Kolkata on a UTC server would otherwise have tasks
+        # expire ~5.5 hours early/late.
+        logger.warning("timezone_fallback_to_utc", extra={"user_tz": user_tz})
+        tz = timezone.utc
 
     now = datetime.now(tz)
     today = now.date()
@@ -659,76 +712,6 @@ async def _apply_horizon_line(
         logger.info("horizon_line_applied", extra={
             "user_id": str(user_id), "expired_count": expired_count,
         })
-
-
-async def _handle_stale_schedule(
-    user: User,
-    schedule: Schedule,
-    today: date,
-    db: AsyncSession,
-) -> Schedule:
-    """
-    Handle stale schedule regeneration with crash-safe locking.
-    Returns the (possibly regenerated) schedule.
-    """
-    now_utc = datetime.now(timezone.utc)
-
-    # Check if another process is already regenerating
-    if schedule.is_regenerating:
-        if (
-            schedule.regeneration_started_at
-            and (now_utc - schedule.regeneration_started_at).total_seconds() > REGEN_LOCK_TIMEOUT_SECS
-        ):
-            # Stale lock ΓÇö force-release
-            schedule.is_regenerating = False
-            schedule.regeneration_started_at = None
-            await db.flush()
-            logger.warning("stale_regen_lock_released", extra={
-                "user_id": str(user.id),
-                "schedule_id": str(schedule.id),
-            })
-        else:
-            # Active regen in progress ΓÇö return stale schedule as-is
-            return schedule
-
-    # Claim the regeneration lock
-    schedule.is_regenerating = True
-    schedule.regeneration_started_at = now_utc
-    await db.flush()
-
-    try:
-        # Generate fresh
-        # Note: generate_schedule internally handles soft-deletion of the existing one
-        # via _save_schedule and _get_existing_schedule (which filters deleted_at IS NULL).
-        await generate_schedule_orchestrator(
-            user,
-            GenerateScheduleRequest(target_date=today.isoformat(), use_llm=False),
-            db,
-        )
-
-        # Fetch the new schedule
-        new_schedule = await _get_existing_schedule(user.id, today, db)
-        
-        # Release the lock on the OLD schedule object before returning
-        schedule.is_regenerating = False
-        schedule.regeneration_started_at = None
-        await db.flush()
-
-        if new_schedule:
-            return new_schedule
-        return schedule  # fallback
-
-    except Exception:
-        logger.exception("stale_regen_recovery_failed", extra={
-            "user_id": str(user.id),
-            "schedule_id": str(schedule.id),
-        })
-        # Release the lock on failure
-        schedule.is_regenerating = False
-        schedule.regeneration_started_at = None
-        schedule.deleted_at = None  # Undelete to keep it visible
-        await db.flush()
-        return schedule
 
 
 async def _get_existing_schedule(
@@ -1192,6 +1175,7 @@ async def enrich_schedule_with_llm(
     prompt: str,
     groq_api_key: str,
     preferred_model: str = "primary",
+    generation_version: Optional[int] = None,
 ) -> None:
     """
     Background task: call LLM and update schedule enrichment in DB.
@@ -1200,7 +1184,18 @@ async def enrich_schedule_with_llm(
     from app.database import AsyncSessionLocal
 
     try:
-        enrichment = await call_llm(prompt, groq_api_key, preferred_model=preferred_model)
+        # Cap total provider chain to 45s. Individual providers have their
+        # own httpx timeouts (OpenRouter 30s, Groq 15s, Ollama 60s) but
+        # sequential fallthrough can take up to 105s. This background task
+        # holds a DB connection (below), so unbounded wait = pool exhaustion.
+        try:
+            enrichment = await asyncio.wait_for(
+                call_llm(prompt, groq_api_key, preferred_model=preferred_model),
+                timeout=45.0,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("llm_enrichment_timeout", extra={"schedule_id": str(schedule_id)})
+            return
         if not enrichment:
             return
 
@@ -1210,6 +1205,14 @@ async def enrich_schedule_with_llm(
             )
             schedule = result.scalar_one_or_none()
             if not schedule:
+                return
+            # Skip if schedule was regenerated since our dispatch
+            if generation_version is not None and schedule.generation_version != generation_version:
+                logger.info("skipping_stale_enrichment", extra={
+                    "schedule_id": str(schedule_id),
+                    "expected_version": generation_version,
+                    "current_version": schedule.generation_version,
+                })
                 return
 
             if enrichment.get("strategy_note"):

@@ -143,6 +143,14 @@ async def async_client(db_engine, app_instance, request):
                 await session.close()
 
     app_instance.dependency_overrides[get_db] = override_get_db
+
+    # Patch the engine reference so advisory locks use the test container
+    import app.database as _db_mod
+    import app.services.schedule_service as _sched_mod
+    _orig_db_engine = _db_mod.engine
+    _orig_sched_engine = _sched_mod.engine
+    _db_mod.engine = db_engine
+    _sched_mod.engine = db_engine
     
     # Handle rate limiting: Disable unless explicitly requested via mark
     marker = request.node.get_closest_marker("rate_limit_enabled")
@@ -167,6 +175,10 @@ async def async_client(db_engine, app_instance, request):
             yield ac
         
     app_instance.dependency_overrides.clear()
+
+    # Restore original engine references
+    _db_mod.engine = _orig_db_engine
+    _sched_mod.engine = _orig_sched_engine
 
 # ── Auth & User Helpers ─────────────────────────────────────
 

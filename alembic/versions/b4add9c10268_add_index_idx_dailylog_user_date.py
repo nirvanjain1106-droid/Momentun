@@ -18,7 +18,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.execute("CREATE INDEX IF NOT EXISTS idx_dailylog_user_date ON daily_logs (user_id, date DESC)")
+    op.execute("CREATE INDEX IF NOT EXISTS idx_dailylog_user_date ON daily_logs (user_id, log_date DESC)")
 
 
 def downgrade() -> None:

@@ -264,15 +264,6 @@ class Schedule(Base):
         Integer, default=1, server_default="1", nullable=False,
     )
 
-    # Regeneration lock — prevents concurrent solver runs
-    is_regenerating: Mapped[bool] = mapped_column(
-        Boolean, default=False, nullable=False,
-    )
-    # Timestamp for crash recovery — if is_regenerating=True and this is >60s ago,
-    # the lock is force-released on next fetch
-    regeneration_started_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True, default=None,
-    )
 
     deleted_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True, default=None

@@ -54,7 +54,7 @@ async def test_morning_checkin_updates_existing_log_schedule_id(monkeypatch):
         "_get_todays_schedule",
         _sequence_async([old_schedule, new_schedule]),
     )
-    monkeypatch.setattr(checkin_service, "generate_schedule", _async_return(None))
+    monkeypatch.setattr(checkin_service, "generate_schedule_orchestrator", _async_return(None))
     monkeypatch.setattr(
         checkin_service.insights_service,
         "get_patterns",

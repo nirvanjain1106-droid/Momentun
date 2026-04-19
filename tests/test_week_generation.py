@@ -50,12 +50,16 @@ async def test_week_generation_calls_daily_generation_sequentially(monkeypatch):
             day_capacity_hrs=0.0,
         )
 
-    monkeypatch.setattr(schedule_service, "generate_schedule", fake_generate)
+    monkeypatch.setattr(schedule_service, "generate_schedule_orchestrator", fake_generate)
 
     response = await schedule_service.get_week_schedule(user, db, "2026-04-13")
     assert response.days_generated == 7
     assert len(calls) == 7
-    assert all(call_db is db for _, call_db in calls)
+    # Fix #4 verified: each day gets its own fresh session, not the outer db
+    call_dbs = [call_db for _, call_db in calls]
+    assert all(cdb is not db for cdb in call_dbs)
+    # Ensure they are 7 distinct session objects
+    assert len(set(id(cdb) for cdb in call_dbs)) == 7
 
 
 def _async_return(value):
