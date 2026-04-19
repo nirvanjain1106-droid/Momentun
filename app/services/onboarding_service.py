@@ -52,17 +52,17 @@ async def save_academic_profile(
     if user.user_type == "student_intern":
         if not data.internship_company:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="internship_company is required for student_intern users",
             )
         if not data.internship_days:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="internship_days is required for student_intern users",
             )
         if not data.internship_hours_per_day:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="internship_hours_per_day is required for student_intern users",
             )
 

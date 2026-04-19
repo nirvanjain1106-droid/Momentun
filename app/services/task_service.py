@@ -268,7 +268,7 @@ async def reschedule_task(
         if not placement:
             suggested_date = await _find_next_available_date(user_id, req, target_date, db)
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail={
                     "reason": "no_suitable_gap",
                     "message": "No available time slot fits this task today.",
@@ -594,13 +594,13 @@ async def quick_add_task(
     """
     if not title or not title.strip():
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Title is required",
         )
 
     if duration_mins < 5 or duration_mins > 480:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Duration must be between 5 and 480 minutes",
         )
 

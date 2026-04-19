@@ -189,7 +189,7 @@ async def evening_review(
         missing_ids = expected_ids - submitted_ids
         unknown_ids = submitted_ids - expected_ids
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={
                 "message": "Task completion payload must match today's scheduled tasks exactly.",
                 "missing_task_ids": [str(task_id) for task_id in sorted(missing_ids)],

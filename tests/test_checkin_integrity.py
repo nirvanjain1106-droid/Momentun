@@ -3,7 +3,7 @@ from datetime import date
 from types import SimpleNamespace
 
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, status
 
 from app.schemas.checkin import EveningReviewRequest, MorningCheckinRequest, TaskCompletionUpdate
 from app.services import checkin_service

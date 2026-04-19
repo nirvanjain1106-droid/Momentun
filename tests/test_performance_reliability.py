@@ -121,9 +121,11 @@ async def test_stale_lock_recovery(async_client, setup_test_user, test_db):
     await async_client.post("/api/v1/goals", json=goal_data, headers=headers)
 
     # 2. Create a stale schedule in the DB
+    from app.core.timezone import get_user_today
+    user_today = get_user_today(user.timezone)
     schedule = Schedule(
         user_id=user.id,
-        schedule_date=date.today(),
+        schedule_date=user_today,
         is_stale=True,
         generation_version=1,
     )
@@ -153,7 +155,7 @@ async def test_stale_lock_recovery(async_client, setup_test_user, test_db):
         select(Schedule).where(
             and_(
                 Schedule.user_id == uid,
-                Schedule.schedule_date == date.today(),
+                Schedule.schedule_date == user_today,
                 Schedule.is_stale == False,  # noqa: E712
             )
         )
