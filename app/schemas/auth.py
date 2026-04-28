@@ -7,7 +7,7 @@ class RegisterRequest(BaseModel):
     name: str
     email: EmailStr
     password: str
-    user_type: str
+    user_type: str = "student"
 
     @field_validator("name")
     @classmethod
@@ -46,6 +46,7 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user_id: uuid.UUID
+    name: str
     onboarding_complete: bool
     onboarding_step: int
 

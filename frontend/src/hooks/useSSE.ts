@@ -21,7 +21,7 @@ export function useSSE() {
   );
   const [reconnectTrigger, setReconnectTrigger] = useState(0);
 
-  const { fetchSchedule } = useScheduleStore();
+  const { fetchSchedule, fetchParkedTasks } = useScheduleStore();
   const sourceRef = useRef<EventSource | null>(null);
   const reconnectDelayRef = useRef(INITIAL_RECONNECT_DELAY_MS);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -76,7 +76,7 @@ export function useSSE() {
     };
 
     source.addEventListener('schedule_updated', () => {
-      fetchSchedule();
+      void Promise.allSettled([fetchSchedule(), fetchParkedTasks()]);
     });
 
     source.addEventListener('evicted', () => {
@@ -100,7 +100,7 @@ export function useSSE() {
         sourceRef.current = null;
       }
     };
-  }, [reconnectTrigger, fetchSchedule, status, scheduleReconnect]);
+  }, [reconnectTrigger, fetchParkedTasks, fetchSchedule, status, scheduleReconnect]);
 
   // Event listeners for window connectivity
   useEffect(() => {

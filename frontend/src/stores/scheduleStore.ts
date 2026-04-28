@@ -1,48 +1,41 @@
 import { create } from 'zustand';
-import { scheduleApi } from '../api/scheduleApi';
-import type {
-  ScheduleResponse,
-  TaskDetail,
-  DayScore,
-  StreakInfo,
-} from '../api/scheduleApi';
 import { idbCache } from '../lib/idbCache';
+import {
+  scheduleApi,
+  type AdHocTaskPayload,
+  type DayScore,
+  type QuickAddPayload,
+  type ScheduleResponse,
+  type StreakInfo,
+  type TaskDetail,
+} from '../api/scheduleApi';
 
 type PendingAction = 'COMPLETING' | 'PARKING' | 'UNDOING';
 
 interface InversePatch {
   type: PendingAction;
   taskSnapshot: TaskDetail;
-  // We can track the previous arrays if tasks move between active/parked lists
   sourceList: 'tasks' | 'unassigned_parked_tasks';
 }
 
 interface ScheduleState {
-  // Core state
   schedule: ScheduleResponse | null;
+  parkedTasks: TaskDetail[];
   dayScore: DayScore | null;
   streak: StreakInfo | null;
-  
-  // UI state
   isLoading: boolean;
+  isParkedLoading: boolean;
   error: string | null;
   taskPendingActions: Record<string, PendingAction>;
   inversePatches: Record<string, InversePatch>;
-
-  // Actions
   fetchSchedule: (dateStr?: string) => Promise<void>;
+  fetchParkedTasks: (staleOnly?: boolean) => Promise<void>;
   completeTask: (taskId: string, actual_duration_mins?: number, quality_rating?: number) => Promise<void>;
   parkTask: (taskId: string, reason: string | null) => Promise<void>;
   undoTask: (taskId: string) => Promise<void>;
-  createAdHocTask: (data: { 
-    title: string; 
-    duration_mins: number; 
-    energy_required: string; 
-    priority?: number;
-    goal_id?: string | null;
-  }) => Promise<void>;
-  
-  // Helpers
+  createAdHocTask: (data: AdHocTaskPayload) => Promise<TaskDetail>;
+  quickAddTask: (data: QuickAddPayload) => Promise<TaskDetail>;
+  rescheduleTask: (taskId: string, targetDate: string) => Promise<TaskDetail>;
   rollbackPatch: (taskId: string) => void;
   removePatch: (taskId: string) => void;
 }
@@ -69,6 +62,11 @@ function shouldQueueOptimisticError(error: QueueableError | null): boolean {
 
 function getErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message) {
+    // Axios sets error.message to "Network Error" for failed requests with
+    // no response — surface a friendlier message instead.
+    if (error.message === 'Network Error') {
+      return 'Unable to connect to the server. Please check your connection and try again.';
+    }
     return error.message;
   }
 
@@ -76,60 +74,83 @@ function getErrorMessage(error: unknown, fallback: string): string {
   return queueableError?.message || fallback;
 }
 
+const TODAY_CACHE_KEY = 'today_schedule';
+
 export const useScheduleStore = create<ScheduleState>((set, get) => ({
   schedule: null,
+  parkedTasks: [],
   dayScore: null,
   streak: null,
   isLoading: false,
+  isParkedLoading: false,
   error: null,
   taskPendingActions: {},
   inversePatches: {},
 
-  fetchSchedule: async (dateStr?: string) => {
+  fetchSchedule: async (dateStr) => {
     set({ isLoading: true, error: null });
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15000);
-      
       const data = await scheduleApi.getTodaySchedule(dateStr, controller.signal);
       clearTimeout(timeoutId);
 
-      // Save to IDB for offline fallback
       if (!dateStr || dateStr === new Date().toISOString().split('T')[0]) {
-        await idbCache.setItem('today_schedule', data);
+        await idbCache.setItem(TODAY_CACHE_KEY, data);
       }
 
-      set({ schedule: data, isLoading: false });
+      set({
+        schedule: data,
+        parkedTasks: data.unassigned_parked_tasks,
+        isLoading: false,
+        error: null,
+      });
     } catch (error: unknown) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        set({ error: 'Request timed out. Please try again.', isLoading: false });
-        throw error;
+      const cached = await idbCache.getItem<ScheduleResponse>(TODAY_CACHE_KEY);
+
+      if (cached) {
+        set({
+          schedule: cached,
+          parkedTasks: cached.unassigned_parked_tasks,
+          isLoading: false,
+          error: 'Offline mode: showing cached schedule.',
+        });
+        return;
       }
 
-      // Try fallback from cache if available
-      const cached = await idbCache.getItem<ScheduleResponse>('today_schedule');
-      if (cached) {
-        set({ schedule: cached, isLoading: false, error: 'Offline mode: Showing cached data.' });
-      } else {
-        const msg = error instanceof Error ? error.message : 'Failed to fetch schedule';
-        set({ error: msg, isLoading: false });
-        throw error; // Let ErrorBoundary handle it if needed
-      }
+      const msg = error instanceof Error && error.name === 'AbortError'
+        ? 'Request timed out. Please try again.'
+        : getErrorMessage(error, 'Failed to fetch schedule');
+
+      set({ isLoading: false, error: msg });
     }
   },
 
-  rollbackPatch: (taskId: string) => {
+  fetchParkedTasks: async (staleOnly = false) => {
+    set({ isParkedLoading: true });
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
+      const data = await scheduleApi.getParkedTasks(staleOnly, controller.signal);
+      clearTimeout(timeoutId);
+      set({ parkedTasks: data.tasks, isParkedLoading: false });
+    } catch (error: unknown) {
+      set({
+        isParkedLoading: false,
+        error: getErrorMessage(error, 'Failed to load Later tasks'),
+      });
+    }
+  },
+
+  rollbackPatch: (taskId) => {
     set((state) => {
       const patch = state.inversePatches[taskId];
       if (!patch || !state.schedule) return state;
 
       const newSchedule = { ...state.schedule };
-      
-      // Remove from everywhere just in case
-      newSchedule.tasks = newSchedule.tasks.filter(t => t.id !== taskId);
-      newSchedule.unassigned_parked_tasks = newSchedule.unassigned_parked_tasks.filter(t => t.id !== taskId);
+      newSchedule.tasks = newSchedule.tasks.filter((task) => task.id !== taskId);
+      newSchedule.unassigned_parked_tasks = newSchedule.unassigned_parked_tasks.filter((task) => task.id !== taskId);
 
-      // Put back exactly where it was
       if (patch.sourceList === 'tasks') {
         newSchedule.tasks = [...newSchedule.tasks, patch.taskSnapshot];
       } else {
@@ -145,12 +166,12 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
       return {
         schedule: newSchedule,
         taskPendingActions: newPendingActions,
-        inversePatches: newPatches
+        inversePatches: newPatches,
       };
     });
   },
 
-  removePatch: (taskId: string) => {
+  removePatch: (taskId) => {
     set((state) => {
       const newPendingActions = { ...state.taskPendingActions };
       delete newPendingActions[taskId];
@@ -160,85 +181,80 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
 
       return {
         taskPendingActions: newPendingActions,
-        inversePatches: newPatches
+        inversePatches: newPatches,
       };
     });
   },
 
-  completeTask: async (taskId, actual_duration_mins?, quality_rating?) => {
+  completeTask: async (taskId, actual_duration_mins, quality_rating) => {
     const state = get();
     if (!state.schedule) return;
 
-    const task = state.schedule.tasks.find(t => t.id === taskId);
+    const task = state.schedule.tasks.find((item) => item.id === taskId);
     if (!task) return;
 
-    // 1. Snapshot and Optimistic Update
-    set((state) => {
-      if (!state.schedule) return state;
+    set((current) => {
+      if (!current.schedule) return current;
+
       const patch: InversePatch = {
         type: 'COMPLETING',
         taskSnapshot: { ...task },
-        sourceList: 'tasks'
+        sourceList: 'tasks',
       };
 
-      const newSchedule = { ...state.schedule };
-      const taskIndex = newSchedule.tasks.findIndex(t => t.id === taskId);
+      const newSchedule = { ...current.schedule };
+      const taskIndex = newSchedule.tasks.findIndex((item) => item.id === taskId);
       if (taskIndex !== -1) {
         newSchedule.tasks[taskIndex] = { ...newSchedule.tasks[taskIndex], task_status: 'completed' };
       }
 
       return {
-        taskPendingActions: { ...state.taskPendingActions, [taskId]: 'COMPLETING' },
-        inversePatches: { ...state.inversePatches, [taskId]: patch },
+        taskPendingActions: { ...current.taskPendingActions, [taskId]: 'COMPLETING' },
+        inversePatches: { ...current.inversePatches, [taskId]: patch },
         schedule: newSchedule,
-        error: null
+        error: null,
       };
     });
 
-    // 2. Network Request
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15000);
-
       const response = await scheduleApi.completeTask(taskId, { actual_duration_mins, quality_rating }, controller.signal);
       clearTimeout(timeoutId);
 
-      // 3. Commit Success
-      set((state) => {
-        if (!state.schedule) return state;
-        const newSchedule = { ...state.schedule };
-        const taskIndex = newSchedule.tasks.findIndex(t => t.id === taskId);
+      set((current) => {
+        if (!current.schedule) return current;
+        const newSchedule = { ...current.schedule };
+        const taskIndex = newSchedule.tasks.findIndex((item) => item.id === taskId);
         if (taskIndex !== -1) {
-          newSchedule.tasks[taskIndex] = response.task; // update with server truth
+          newSchedule.tasks[taskIndex] = response.task;
         }
+
         return {
           schedule: newSchedule,
           dayScore: response.day_score,
-          streak: response.streak
+          streak: response.streak,
         };
       });
+
       get().removePatch(taskId);
-      
     } catch (error: unknown) {
       const queueableError = asQueueableError(error);
 
-      // Offline / Network Error or 409 Conflict => Handled by background queue later
       if (shouldQueueOptimisticError(queueableError)) {
         import('../lib/offlineQueue').then(({ enqueueAction }) => {
           enqueueAction({
             type: 'complete',
             task_id: taskId,
-            payload: { actual_duration_mins, quality_rating }
+            payload: { actual_duration_mins, quality_rating },
           });
         });
-        get().removePatch(taskId); // Keep optimistic update!
+        get().removePatch(taskId);
         return;
       }
 
-      // 4. Rollback Failure
       get().rollbackPatch(taskId);
-      const msg = getErrorMessage(error, 'Network error');
-      set({ error: `Failed to complete task: ${msg}` });
+      set({ error: `Failed to complete task: ${getErrorMessage(error, 'Network error')}` });
     }
   },
 
@@ -246,57 +262,63 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
     const state = get();
     if (!state.schedule) return;
 
-    const task = state.schedule.tasks.find(t => t.id === taskId) 
-              || state.schedule.unassigned_parked_tasks.find(t => t.id === taskId);
+    const task = state.schedule.tasks.find((item) => item.id === taskId)
+      || state.schedule.unassigned_parked_tasks.find((item) => item.id === taskId);
     if (!task) return;
 
-    const sourceList = state.schedule.tasks.some(t => t.id === taskId) ? 'tasks' : 'unassigned_parked_tasks';
+    const sourceList = state.schedule.tasks.some((item) => item.id === taskId)
+      ? 'tasks'
+      : 'unassigned_parked_tasks';
 
-    set((state) => {
-      if (!state.schedule) return state;
+    set((current) => {
+      if (!current.schedule) return current;
+
       const patch: InversePatch = {
         type: 'PARKING',
         taskSnapshot: { ...task },
-        sourceList
+        sourceList,
       };
 
-      const newSchedule = { ...state.schedule };
-      // Remove from active tasks, add to parked
+      const newSchedule = { ...current.schedule };
       if (sourceList === 'tasks') {
-        newSchedule.tasks = newSchedule.tasks.filter(t => t.id !== taskId);
-        newSchedule.unassigned_parked_tasks = [...newSchedule.unassigned_parked_tasks, { ...task, task_status: 'parked' }];
+        newSchedule.tasks = newSchedule.tasks.filter((item) => item.id !== taskId);
+        newSchedule.unassigned_parked_tasks = [
+          { ...task, task_status: 'parked' },
+          ...newSchedule.unassigned_parked_tasks.filter((item) => item.id !== taskId),
+        ];
       }
 
       return {
-        taskPendingActions: { ...state.taskPendingActions, [taskId]: 'PARKING' },
-        inversePatches: { ...state.inversePatches, [taskId]: patch },
+        taskPendingActions: { ...current.taskPendingActions, [taskId]: 'PARKING' },
+        inversePatches: { ...current.inversePatches, [taskId]: patch },
         schedule: newSchedule,
-        error: null
+        error: null,
       };
     });
 
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15000);
-
       const response = await scheduleApi.parkTask(taskId, reason, controller.signal);
       clearTimeout(timeoutId);
 
-      set((state) => {
-        if (!state.schedule) return state;
-        const newSchedule = { ...state.schedule };
-        const taskIndex = newSchedule.unassigned_parked_tasks.findIndex(t => t.id === taskId);
-        if (taskIndex !== -1) {
-          newSchedule.unassigned_parked_tasks[taskIndex] = response.task; 
+      set((current) => {
+        if (!current.schedule) return current;
+        const newSchedule = { ...current.schedule };
+        const parkedIndex = newSchedule.unassigned_parked_tasks.findIndex((item) => item.id === taskId);
+        if (parkedIndex !== -1) {
+          newSchedule.unassigned_parked_tasks[parkedIndex] = response.task;
         }
+
         return {
           schedule: newSchedule,
           dayScore: response.day_score,
-          streak: response.streak
+          streak: response.streak,
         };
       });
+
       get().removePatch(taskId);
-      
+      void get().fetchParkedTasks();
     } catch (error: unknown) {
       const queueableError = asQueueableError(error);
 
@@ -305,16 +327,15 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
           enqueueAction({
             type: 'park',
             task_id: taskId,
-            payload: { reason }
+            payload: { reason },
           });
         });
-        get().removePatch(taskId); // Keep optimistic
+        get().removePatch(taskId);
         return;
       }
 
       get().rollbackPatch(taskId);
-      const msg = getErrorMessage(error, 'Network error');
-      set({ error: `Failed to park task: ${msg}` });
+      set({ error: `Failed to park task: ${getErrorMessage(error, 'Network error')}` });
     }
   },
 
@@ -322,26 +343,27 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
     const state = get();
     if (!state.schedule) return;
 
-    const task = state.schedule.tasks.find(t => t.id === taskId) 
-              || state.schedule.unassigned_parked_tasks.find(t => t.id === taskId);
+    const task = state.schedule.tasks.find((item) => item.id === taskId)
+      || state.schedule.unassigned_parked_tasks.find((item) => item.id === taskId);
     if (!task) return;
 
-    const sourceList = state.schedule.tasks.some(t => t.id === taskId) ? 'tasks' : 'unassigned_parked_tasks';
+    const sourceList = state.schedule.tasks.some((item) => item.id === taskId)
+      ? 'tasks'
+      : 'unassigned_parked_tasks';
 
-    set((state) => {
-      if (!state.schedule) return state;
+    set((current) => {
+      if (!current.schedule) return current;
+
       const patch: InversePatch = {
         type: 'UNDOING',
         taskSnapshot: { ...task },
-        sourceList
+        sourceList,
       };
 
-      const newSchedule = { ...state.schedule };
-      const previousStatus = task.previous_status || 'active'; // guess if not fully known
-      
-      // Moving back logic optimistically
-      newSchedule.tasks = newSchedule.tasks.filter(t => t.id !== taskId);
-      newSchedule.unassigned_parked_tasks = newSchedule.unassigned_parked_tasks.filter(t => t.id !== taskId);
+      const newSchedule = { ...current.schedule };
+      const previousStatus = task.previous_status || 'active';
+      newSchedule.tasks = newSchedule.tasks.filter((item) => item.id !== taskId);
+      newSchedule.unassigned_parked_tasks = newSchedule.unassigned_parked_tasks.filter((item) => item.id !== taskId);
 
       if (previousStatus === 'parked') {
         newSchedule.unassigned_parked_tasks.push({ ...task, task_status: previousStatus });
@@ -350,43 +372,42 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
       }
 
       return {
-        taskPendingActions: { ...state.taskPendingActions, [taskId]: 'UNDOING' },
-        inversePatches: { ...state.inversePatches, [taskId]: patch },
+        taskPendingActions: { ...current.taskPendingActions, [taskId]: 'UNDOING' },
+        inversePatches: { ...current.inversePatches, [taskId]: patch },
         schedule: newSchedule,
-        error: null
+        error: null,
       };
     });
 
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15000);
-
       const response = await scheduleApi.undoTask(taskId, controller.signal);
       clearTimeout(timeoutId);
 
-      set((state) => {
-        if (!state.schedule) return state;
-        const newSchedule = { ...state.schedule };
-        
-        // Find where it ended up and update it
-        const tIndex = newSchedule.tasks.findIndex(t => t.id === taskId);
-        if (tIndex !== -1) {
-          newSchedule.tasks[tIndex] = response.task;
+      set((current) => {
+        if (!current.schedule) return current;
+
+        const newSchedule = { ...current.schedule };
+        const taskIndex = newSchedule.tasks.findIndex((item) => item.id === taskId);
+        if (taskIndex !== -1) {
+          newSchedule.tasks[taskIndex] = response.task;
         } else {
-          const ptIndex = newSchedule.unassigned_parked_tasks.findIndex(t => t.id === taskId);
-          if (ptIndex !== -1) {
-            newSchedule.unassigned_parked_tasks[ptIndex] = response.task;
+          const parkedIndex = newSchedule.unassigned_parked_tasks.findIndex((item) => item.id === taskId);
+          if (parkedIndex !== -1) {
+            newSchedule.unassigned_parked_tasks[parkedIndex] = response.task;
           }
         }
 
         return {
           schedule: newSchedule,
           dayScore: response.day_score,
-          streak: response.streak
+          streak: response.streak,
         };
       });
+
       get().removePatch(taskId);
-      
+      void get().fetchParkedTasks();
     } catch (error: unknown) {
       const queueableError = asQueueableError(error);
 
@@ -394,30 +415,50 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
         import('../lib/offlineQueue').then(({ enqueueAction }) => {
           enqueueAction({
             type: 'undo',
-            task_id: taskId
+            task_id: taskId,
           });
         });
-        get().removePatch(taskId); // Keep optimistic
+        get().removePatch(taskId);
         return;
       }
 
       get().rollbackPatch(taskId);
-      const msg = getErrorMessage(error, 'Network error');
-      set({ error: `Failed to undo task action: ${msg}` });
+      set({ error: `Failed to undo task action: ${getErrorMessage(error, 'Network error')}` });
     }
   },
 
   createAdHocTask: async (data) => {
-    set({ isLoading: true, error: null });
+    set({ error: null });
     try {
-      const newSchedule = await scheduleApi.createAdHocTask(data);
-      set({ schedule: newSchedule, isLoading: false });
-      
-      // Also update IDB cache
-      await idbCache.setItem('today_schedule', newSchedule);
+      const createdTask = await scheduleApi.createAdHocTask(data);
+      await Promise.allSettled([get().fetchSchedule(), get().fetchParkedTasks()]);
+      return createdTask;
     } catch (error: unknown) {
-      const msg = getErrorMessage(error, 'Failed to create task');
-      set({ error: msg, isLoading: false });
+      set({ error: getErrorMessage(error, 'Failed to create task') });
+      throw error;
+    }
+  },
+
+  quickAddTask: async (data) => {
+    set({ error: null });
+    try {
+      const task = await scheduleApi.quickAddTask(data);
+      await Promise.allSettled([get().fetchSchedule(), get().fetchParkedTasks()]);
+      return task;
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error, 'Failed to add task to Later') });
+      throw error;
+    }
+  },
+
+  rescheduleTask: async (taskId, targetDate) => {
+    set({ error: null });
+    try {
+      const task = await scheduleApi.rescheduleTask({ task_id: taskId, target_date: targetDate });
+      await Promise.allSettled([get().fetchSchedule(), get().fetchParkedTasks()]);
+      return task;
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error, 'Failed to reschedule task') });
       throw error;
     }
   },

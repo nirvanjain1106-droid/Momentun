@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { TaskDetail } from '../../api/scheduleApi';
 import { TaskCard } from './TaskCard';
 
@@ -6,19 +6,18 @@ export function Timeline({ tasks }: { tasks: TaskDetail[] }) {
   const [, setTick] = useState(0);
 
   useEffect(() => {
-    let timeoutId: ReturnType<typeof setTimeout>;
-    
-    // Calculates the next time a task crosses from Future -> Now -> Past
-    // For timeline progress and active state calculation.
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
     const scheduleNextUpdate = () => {
       const now = Date.now();
       let nextEventTimestamp = Infinity;
 
-      tasks.forEach(task => {
+      tasks.forEach((task) => {
         if (task.scheduled_start) {
           const start = new Date(task.scheduled_start).getTime();
           if (start > now && start < nextEventTimestamp) nextEventTimestamp = start;
         }
+
         if (task.scheduled_end) {
           const end = new Date(task.scheduled_end).getTime();
           if (end > now && end < nextEventTimestamp) nextEventTimestamp = end;
@@ -26,12 +25,11 @@ export function Timeline({ tasks }: { tasks: TaskDetail[] }) {
       });
 
       if (nextEventTimestamp !== Infinity) {
-        // Add 100ms safety buffer
-        const timeToWait = Math.max(0, nextEventTimestamp - now) + 100;
+        const delay = Math.max(0, nextEventTimestamp - now) + 100;
         timeoutId = setTimeout(() => {
-          setTick(t => t + 1);
+          setTick((value) => value + 1);
           scheduleNextUpdate();
-        }, timeToWait);
+        }, delay);
       }
     };
 
@@ -39,32 +37,45 @@ export function Timeline({ tasks }: { tasks: TaskDetail[] }) {
 
     const handleVisibilityChange = () => {
       if (!document.hidden) {
-        setTick(t => t + 1);
-        clearTimeout(timeoutId);
+        setTick((value) => value + 1);
+        if (timeoutId) clearTimeout(timeoutId);
         scheduleNextUpdate();
       }
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
-
     return () => {
-      clearTimeout(timeoutId);
+      if (timeoutId) clearTimeout(timeoutId);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [tasks]);
 
+  const orderedTasks = useMemo(() => {
+    return [...tasks].sort((a, b) => {
+      if (!a.scheduled_start && !b.scheduled_start) return a.sequence_order - b.sequence_order;
+      if (!a.scheduled_start) return 1;
+      if (!b.scheduled_start) return -1;
+      return new Date(a.scheduled_start).getTime() - new Date(b.scheduled_start).getTime();
+    });
+  }, [tasks]);
+
+  if (orderedTasks.length === 0) {
+    return (
+      <div className="flex min-h-[320px] flex-col items-center justify-center rounded-[26px] border border-dashed border-slate-200 bg-slate-50 px-6 text-center">
+        <h3 className="text-lg font-semibold text-slate-900">Nothing is scheduled yet</h3>
+        <p className="mt-2 max-w-sm text-sm leading-6 text-slate-500">
+          Add a task or generate today&apos;s plan to populate the timeline.
+        </p>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-col gap-4 relative">
-      {/* Visual Timeline Line */}
-      <div className="absolute left-6 top-0 bottom-0 w-0.5 bg-gray-200 dark:bg-gray-700 pointer-events-none" />
-      
-      {tasks.length === 0 ? (
-        <div className="text-center text-gray-500 my-8">No tasks scheduled for today.</div>
-      ) : (
-        tasks.map(task => (
-          <TaskCard key={task.id} task={task} />
-        ))
-      )}
+    <div className="relative flex flex-col gap-4 pb-3">
+      <div className="absolute bottom-0 left-[4.8rem] top-0 w-px bg-[linear-gradient(180deg,rgba(196,181,253,0.2),rgba(148,163,184,0.35),rgba(196,181,253,0.08))]" />
+      {orderedTasks.map((task) => (
+        <TaskCard key={task.id} task={task} />
+      ))}
     </div>
   );
 }

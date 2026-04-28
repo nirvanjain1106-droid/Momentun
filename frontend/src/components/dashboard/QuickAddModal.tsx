@@ -1,146 +1,281 @@
-import { z } from 'zod';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
+import { useEffect, useMemo, useState } from 'react';
+import { CalendarDays, Clock3, Flag, Sparkles, X } from 'lucide-react';
 import { useGoalStore } from '../../stores/goalStore';
 import { useScheduleStore } from '../../stores/scheduleStore';
-
-const taskSchema = z.object({
-  title: z.string().min(1, 'Title is required').max(100, 'Title is too long'),
-  duration_mins: z.number().int().min(5, 'Minimum 5 minutes').max(240, 'Maximum 4 hours'),
-  energy_required: z.enum(['low', 'medium', 'high']),
-  is_mvp_task: z.boolean(),
-  goal_id: z.string().nullable().optional(),
-});
-
-type TaskFormData = z.infer<typeof taskSchema>;
+import { useUIStore } from '../../stores/uiStore';
 
 interface QuickAddModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
+type SubmitMode = 'save' | 'park' | 'reschedule';
+
+const durationOptions = [15, 30, 45, 60, 90];
+const energyOptions = [
+  { label: 'Low', value: 'low' },
+  { label: 'Medium', value: 'medium' },
+  { label: 'High', value: 'high' },
+] as const;
+const priorityOptions = [
+  { label: 'Normal', value: 2 },
+  { label: 'Bonus', value: 3 },
+];
+
 export function QuickAddModal({ isOpen, onClose }: QuickAddModalProps) {
-  const { register, handleSubmit, formState: { errors, isSubmitting }, reset } = useForm<TaskFormData>({
-    resolver: zodResolver(taskSchema),
-    defaultValues: {
-      duration_mins: 30,
-      energy_required: 'medium',
-      is_mvp_task: false,
-    }
+  const { goals, fetchGoals } = useGoalStore();
+  const { createAdHocTask, quickAddTask, rescheduleTask } = useScheduleStore();
+  const { addToast } = useUIStore();
+
+  const [title, setTitle] = useState('');
+  const [duration, setDuration] = useState(30);
+  const [energy, setEnergy] = useState<'low' | 'medium' | 'high'>('medium');
+  const [priority, setPriority] = useState<2 | 3>(2);
+  const [goalId, setGoalId] = useState('');
+  const [targetDate, setTargetDate] = useState(() => {
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    return tomorrow.toISOString().split('T')[0];
   });
-  
-  const { goals } = useGoalStore();
-  const { createAdHocTask } = useScheduleStore();
+  const [isSubmitting, setIsSubmitting] = useState<SubmitMode | null>(null);
+
+  const activeGoals = useMemo(
+    () => goals.filter((goal) => goal.status === 'active'),
+    [goals],
+  );
+
+  useEffect(() => {
+    if (isOpen) {
+      void fetchGoals('active');
+    }
+  }, [fetchGoals, isOpen]);
 
   if (!isOpen) return null;
 
-  const onSubmit = async (data: TaskFormData) => {
+  const resetAndClose = () => {
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    setTitle('');
+    setDuration(30);
+    setEnergy('medium');
+    setPriority(2);
+    setGoalId('');
+    setTargetDate(tomorrow);
+    onClose();
+  };
+
+  const handleSubmit = async (mode: SubmitMode) => {
+    if (title.trim().length < 2) {
+      addToast({ type: 'warning', message: 'Add a short, clear task title first.' });
+      return;
+    }
+
+    setIsSubmitting(mode);
+
     try {
-      await createAdHocTask({
-        ...data,
-        goal_id: data.goal_id || null,
-      });
-      
-      reset();
-      onClose();
-    } catch (err) {
-      console.error('Failed to add ad-hoc task:', err);
+      if (mode === 'save') {
+        await createAdHocTask({
+          title: title.trim(),
+          duration_mins: duration,
+          energy_required: energy,
+          priority,
+          goal_id: goalId || null,
+          description: null,
+          task_type: 'general',
+        });
+        addToast({ type: 'success', message: 'Task added to today.' });
+      }
+
+      if (mode === 'park') {
+        await quickAddTask({
+          title: title.trim(),
+          duration_mins: duration,
+          goal_id: goalId || null,
+        });
+        addToast({ type: 'success', message: 'Task added to Later.' });
+      }
+
+      if (mode === 'reschedule') {
+        const parkedTask = await quickAddTask({
+          title: title.trim(),
+          duration_mins: duration,
+          goal_id: goalId || null,
+        });
+        await rescheduleTask(parkedTask.id, targetDate);
+        addToast({ type: 'success', message: `Task moved to ${targetDate}.` });
+      }
+
+      resetAndClose();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Could not save that task.';
+      addToast({ type: 'error', message });
+    } finally {
+      setIsSubmitting(null);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-md overflow-hidden flex flex-col">
-        <header className="p-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
-          <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Quick Add Task</h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+    <div className="fixed inset-0 z-[110] flex items-end justify-center bg-slate-950/45 p-3 backdrop-blur-md sm:items-center">
+      <div className="w-full max-w-lg overflow-hidden rounded-[34px] border border-white/55 bg-[rgba(255,255,255,0.92)] shadow-[0_34px_90px_rgba(15,23,42,0.28)] backdrop-blur-xl">
+        <header className="flex items-start justify-between border-b border-slate-200 px-5 py-5">
+          <div>
+            <p className="text-xs uppercase tracking-[0.22em] text-slate-400">Quick add</p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">Capture the next task</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-500">
+              Save it into today, park it for later, or send it straight to a future date.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={resetAndClose}
+            className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-100 text-slate-700 transition-colors hover:bg-slate-200"
+            aria-label="Close Quick Add"
+          >
+            <X size={18} />
           </button>
         </header>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="p-4 flex flex-col gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Title</label>
-            <input 
-              {...register('title')} 
-              className="w-full border border-gray-300 dark:border-gray-600 rounded p-2 bg-transparent focus:ring-2 focus:ring-brand-500 text-gray-800 dark:text-gray-100 placeholder-gray-400"
-              placeholder="E.g., Review architectural PRs"
-            />
-            {errors.title && <p className="text-red-500 text-xs mt-1">{errors.title.message}</p>}
-          </div>
-
-          <div className="flex gap-4">
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Duration (m)</label>
-              <input 
-                type="number"
-                {...register('duration_mins', { valueAsNumber: true })} 
-                className="w-full border border-gray-300 dark:border-gray-600 rounded p-2 bg-transparent focus:ring-2 focus:ring-brand-500 text-gray-800 dark:text-gray-100"
+        <div className="space-y-5 px-5 py-5">
+          <div className="rounded-[28px] bg-[linear-gradient(135deg,rgba(196,181,253,0.35),rgba(186,230,253,0.3),rgba(253,230,138,0.24))] p-[1px]">
+            <div className="rounded-[27px] bg-white/80 px-4 py-4">
+              <label className="text-sm font-medium text-slate-600">Task title</label>
+              <input
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                placeholder="Deep work session, call back mentor, strength workout..."
+                className="mt-3 w-full border-0 bg-transparent text-lg font-medium text-slate-950 outline-none placeholder:text-slate-300"
+                autoFocus
               />
-              {errors.duration_mins && <p className="text-red-500 text-xs mt-1">{errors.duration_mins.message}</p>}
-            </div>
-
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Energy</label>
-              <select 
-                {...register('energy_required')}
-                className="w-full border border-gray-300 dark:border-gray-600 rounded p-2 bg-transparent focus:ring-2 focus:ring-brand-500 text-gray-800 dark:text-gray-100"
-              >
-                <option value="low">Low (Routine)</option>
-                <option value="medium" selected>Medium (Standard)</option>
-                <option value="high">High (Deep Work)</option>
-              </select>
             </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Link to Goal (Optional)
-            </label>
-            <select
-              {...register('goal_id')}
-              className="w-full border border-gray-300 dark:border-gray-600 rounded p-2 bg-transparent focus:ring-2 focus:ring-brand-500 text-gray-800 dark:text-gray-100"
-            >
-              <option value="">No goal (Ad-hoc)</option>
-              {goals
-                .filter((g) => g.status === 'active')
-                .map((goal) => (
-                  <option key={goal.id} value={goal.id}>
-                    {goal.title}
-                  </option>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="light-surface rounded-[28px] p-4">
+              <div className="mb-3 flex items-center gap-2 text-sm font-medium text-slate-700">
+                <Clock3 size={16} className="text-violet-500" />
+                Duration
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {durationOptions.map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => setDuration(option)}
+                    className={`rounded-full px-3 py-2 text-sm font-medium transition-colors ${
+                      duration === option
+                        ? 'bg-slate-950 text-white'
+                        : 'border border-slate-200 bg-white text-slate-600'
+                    }`}
+                  >
+                    {option}m
+                  </button>
                 ))}
+              </div>
+            </div>
+
+            <div className="light-surface rounded-[28px] p-4">
+              <div className="mb-3 flex items-center gap-2 text-sm font-medium text-slate-700">
+                <Sparkles size={16} className="text-sky-500" />
+                Energy
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {energyOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setEnergy(option.value)}
+                    className={`rounded-full px-3 py-2 text-sm font-medium capitalize transition-colors ${
+                      energy === option.value
+                        ? 'bg-slate-950 text-white'
+                        : 'border border-slate-200 bg-white text-slate-600'
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="light-surface rounded-[28px] p-4">
+              <div className="mb-3 flex items-center gap-2 text-sm font-medium text-slate-700">
+                <Flag size={16} className="text-amber-500" />
+                Priority
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {priorityOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setPriority(option.value as 2 | 3)}
+                    className={`rounded-full px-3 py-2 text-sm font-medium transition-colors ${
+                      priority === option.value
+                        ? 'bg-slate-950 text-white'
+                        : 'border border-slate-200 bg-white text-slate-600'
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="light-surface rounded-[28px] p-4">
+              <label className="mb-3 flex items-center gap-2 text-sm font-medium text-slate-700">
+                <CalendarDays size={16} className="text-emerald-500" />
+                Reschedule date
+              </label>
+              <input
+                type="date"
+                value={targetDate}
+                onChange={(event) => setTargetDate(event.target.value)}
+                className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-700 outline-none"
+              />
+            </div>
+          </div>
+
+          <div className="light-surface rounded-[28px] p-4">
+            <label className="text-sm font-medium text-slate-700">Goal link</label>
+            <select
+              value={goalId}
+              onChange={(event) => setGoalId(event.target.value)}
+              className="mt-3 w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm font-medium text-slate-700 outline-none"
+            >
+              <option value="">No linked goal</option>
+              {activeGoals.map((goal) => (
+                <option key={goal.id} value={goal.id}>
+                  {goal.title}
+                </option>
+              ))}
             </select>
           </div>
+        </div>
 
-          <div className="flex items-center gap-2 mt-2">
-            <input 
-              type="checkbox" 
-              id="mvp"
-              {...register('is_mvp_task')}
-              className="w-4 h-4 text-brand-600 focus:ring-brand-500 border-gray-300 rounded cursor-pointer"
-            />
-            <label htmlFor="mvp" className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer select-none">
-              Mark as MVP (Must-do today)
-            </label>
-          </div>
-
-          <div className="mt-4 flex gap-3 justify-end">
-            <button 
-              type="button" 
-              onClick={onClose}
-              className="px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-            >
-              Cancel
-            </button>
-            <button 
-              type="submit" 
-              disabled={isSubmitting}
-              className="px-4 py-2 bg-brand-600 text-white rounded hover:bg-brand-700 disabled:opacity-50 transition-colors font-medium shadow-sm hover:shadow"
-            >
-              {isSubmitting ? 'Adding...' : 'Add Task'}
-            </button>
-          </div>
-        </form>
+        <footer className="grid grid-cols-1 gap-3 border-t border-slate-200 px-5 py-5 sm:grid-cols-3">
+          <button
+            type="button"
+            onClick={() => void handleSubmit('save')}
+            disabled={isSubmitting !== null}
+            className="rounded-full bg-slate-950 px-4 py-3 text-sm font-medium text-white disabled:opacity-50"
+          >
+            {isSubmitting === 'save' ? 'Saving...' : 'Save'}
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleSubmit('park')}
+            disabled={isSubmitting !== null}
+            className="rounded-full border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 disabled:opacity-50"
+          >
+            {isSubmitting === 'park' ? 'Parking...' : 'Park'}
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleSubmit('reschedule')}
+            disabled={isSubmitting !== null}
+            className="rounded-full bg-[linear-gradient(135deg,#c4b5fd,#93c5fd)] px-4 py-3 text-sm font-medium text-slate-950 disabled:opacity-50"
+          >
+            {isSubmitting === 'reschedule' ? 'Rescheduling...' : 'Reschedule'}
+          </button>
+        </footer>
       </div>
     </div>
   );

@@ -1,12 +1,13 @@
 .sidebar {
   display: none;
-  width: 250px;
+  width: 272px;
   height: 100vh;
-  background-color: var(--bg-secondary);
-  border-right: 1px solid var(--border-color);
+  height: 100dvh;
   flex-direction: column;
-  padding: var(--spacing-6) 0;
-  z-index: 100;
+  padding: 24px 16px;
+  background: rgba(11, 18, 32, 0.94);
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 18px 0 40px rgba(15, 23, 42, 0.18);
 }
 
 @media (min-width: 768px) {
@@ -18,59 +19,57 @@
 .logo {
   display: flex;
   align-items: center;
-  gap: var(--spacing-3);
-  padding: 0 var(--spacing-6);
-  margin-bottom: var(--spacing-10);
+  gap: 14px;
+  padding: 8px 10px 24px;
 }
 
 .logoMark {
-  width: 32px;
-  height: 32px;
-  border-radius: var(--border-radius-sm);
-  background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+  width: 42px;
+  height: 42px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #5eead4, #a78bfa, #fda4af);
+  box-shadow: 0 14px 34px rgba(167, 139, 250, 0.26);
 }
 
 .logo h2 {
-  font-size: var(--font-size-xl);
-  font-weight: 700;
   margin: 0;
-  background: linear-gradient(to right, #fff, #a0a8c0);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
+  color: #f8fafc;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.logo p {
+  margin: 4px 0 0;
+  color: rgba(226, 232, 240, 0.5);
+  font-size: 0.82rem;
 }
 
 .nav {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-2);
-  padding: 0 var(--spacing-4);
-  flex: 1;
+  gap: 6px;
+  margin-top: 8px;
 }
 
 .navItem {
   display: flex;
   align-items: center;
-  gap: var(--spacing-3);
-  padding: var(--spacing-3) var(--spacing-4);
-  border-radius: var(--border-radius-md);
-  color: var(--text-secondary);
+  gap: 12px;
+  padding: 14px 14px;
+  border-radius: 20px;
+  color: rgba(226, 232, 240, 0.72);
   text-decoration: none;
-  font-weight: 500;
-  transition: all var(--transition-fast);
+  font-weight: 600;
+  transition: transform var(--transition-fast), background-color var(--transition-fast), color var(--transition-fast);
 }
 
 .navItem:hover {
-  background-color: rgba(255, 255, 255, 0.05);
-  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.06);
+  color: #f8fafc;
 }
 
 .navItem.active {
-  background-color: rgba(99, 102, 241, 0.15); /* accent-primary with low opacity */
-  color: var(--accent-primary);
-}
-
-.footer {
-  padding: 0 var(--spacing-4);
-  margin-top: auto;
+  background: linear-gradient(135deg, rgba(167, 139, 250, 0.24), rgba(125, 211, 252, 0.16));
+  color: #ffffff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }

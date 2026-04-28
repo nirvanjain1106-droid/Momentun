@@ -74,7 +74,15 @@ app.add_middleware(
     allow_origin_regex=settings.ALLOWED_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization", "X-Request-ID"],
+    allow_headers=[
+        "Accept",
+        "Accept-Language",
+        "Authorization",
+        "Content-Language",
+        "Content-Type",
+        "X-Request-ID",
+        "Idempotency-Key",
+    ],
 )
 
 # ── Prometheus Metrics (auto-instrumentation) ────────────────
@@ -132,8 +140,30 @@ async def health_check():
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """
+    Global 500 handler that manually injects CORS headers.
+
+    Starlette's CORSMiddleware only processes responses that flow through
+    its normal response path. When an unhandled exception is caught by an
+    @app.exception_handler, the response is constructed *after* the CORS
+    middleware has already passed control, so CORS headers are never attached.
+
+    Fix: manually read the Origin header from the request and, if it matches
+    our allowed origin pattern, inject Access-Control-* headers directly on
+    the 500 response so the browser doesn't block it.
+    """
+    import re
     logger.exception("unhandled_exception", extra={"path": str(request.url.path)})
+
+    headers: dict[str, str] = {}
+    origin = request.headers.get("origin", "")
+    if origin and re.match(settings.ALLOWED_ORIGIN_REGEX, origin):
+        headers["Access-Control-Allow-Origin"] = origin
+        headers["Access-Control-Allow-Credentials"] = "true"
+        headers["Vary"] = "Origin"
+
     return JSONResponse(
         status_code=500,
         content={"detail": "Internal server error"},
+        headers=headers,
     )

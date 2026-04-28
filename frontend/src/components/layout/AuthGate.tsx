@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../../stores/authStore';
 import classes from './AuthGate.module.css';
@@ -11,12 +11,49 @@ export const AuthGate = ({ children }: AuthGateProps) => {
   const { isHydrated, isBootRefreshing, userId, onboardingComplete, hydrate } = useAuthStore();
   const navigate = useNavigate();
   const location = useLocation();
+  const hasRedirected = useRef(false);
 
   useEffect(() => {
     hydrate();
   }, [hydrate]);
 
-  // 1. Block rendering until hydration and boot refresh finish
+  // Move ALL navigation into useEffect so React doesn't warn about
+  // "Cannot update a component while rendering a different component"
+  useEffect(() => {
+    if (!isHydrated || isBootRefreshing) return;
+
+    const publicPaths = ['/login', '/register', '/reset-password', '/request-password'];
+    const isPublicPath = publicPaths.some(p => location.pathname.startsWith(p));
+    const isRootPath = location.pathname === '/';
+
+    // Unauthenticated user on a protected route → send to login
+    if (!userId && !isPublicPath) {
+      navigate('/login', { replace: true });
+      return;
+    }
+
+    // Authenticated user on a public/root path → redirect to correct landing
+    if (userId && (isPublicPath || isRootPath)) {
+      navigate(onboardingComplete ? '/home' : '/onboarding', { replace: true });
+      return;
+    }
+
+    // Authenticated but onboarding incomplete → force onboarding
+    if (userId && !onboardingComplete && !location.pathname.startsWith('/onboarding')) {
+      navigate('/onboarding', { replace: true });
+      return;
+    }
+
+    // Authenticated with onboarding complete but still on /onboarding → go home
+    if (userId && onboardingComplete && location.pathname.startsWith('/onboarding')) {
+      navigate('/home', { replace: true });
+      return;
+    }
+
+    hasRedirected.current = false;
+  }, [isHydrated, isBootRefreshing, userId, onboardingComplete, location.pathname, navigate]);
+
+  // Block rendering until hydration and boot refresh finish
   if (!isHydrated || isBootRefreshing) {
     return (
       <div className={classes.loaderContainer}>
@@ -24,40 +61,6 @@ export const AuthGate = ({ children }: AuthGateProps) => {
         <p className={classes.loaderText}>Loading Momentum...</p>
       </div>
     );
-  }
-
-  // 2. Unauthenticated user handling
-  if (!userId) {
-    const publicPaths = ['/login', '/register', '/reset-password', '/request-password'];
-    if (!publicPaths.some(p => location.pathname.startsWith(p))) {
-      // Not on a public path, redirect to login
-      navigate('/login', { replace: true });
-      return null;
-    }
-  }
-
-  // 3. Authenticated user handling
-  if (userId) {
-    const isPublicPath = ['/login', '/register', '/'].includes(location.pathname);
-    
-    if (isPublicPath) {
-      if (!onboardingComplete) {
-        navigate('/onboarding', { replace: true });
-      } else {
-        navigate('/dashboard', { replace: true });
-      }
-      return null;
-    }
-
-    if (!onboardingComplete && !location.pathname.startsWith('/onboarding')) {
-      navigate('/onboarding', { replace: true });
-      return null;
-    }
-
-    if (onboardingComplete && location.pathname.startsWith('/onboarding')) {
-      navigate('/dashboard', { replace: true });
-      return null;
-    }
   }
 
   // Render children (App routing)

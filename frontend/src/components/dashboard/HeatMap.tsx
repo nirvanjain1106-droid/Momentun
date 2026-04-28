@@ -1,118 +1,73 @@
-import { useState } from 'react';
-import { Flame, Smile } from 'lucide-react';
+import type { HeatmapData } from '../../api/insightsApi';
 
-export interface HeatmapEntry {
-  date: string;
-  completion_rate: number | null;
-  intensity: 'none' | 'low' | 'medium' | 'high';
-  tasks_completed: number;
-  tasks_scheduled: number;
-  mood_score: number | null;
-}
+export type HeatmapResponse = HeatmapData;
 
-export interface HeatmapResponse {
-  entries: HeatmapEntry[];
-  total_days: number;
-  active_days: number;
-  average_completion_rate: number | null;
-}
+const intensityStyles: Record<string, string> = {
+  none: 'bg-white/5',
+  low: 'bg-sky-300/35',
+  medium: 'bg-violet-300/45',
+  high: 'bg-fuchsia-300/70',
+};
 
-interface HeatmapProps {
-  data: HeatmapResponse;
-}
+const dayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-export function Heatmap({ data }: HeatmapProps) {
-  const [showMood, setShowMood] = useState(false);
-  const [showStreak, setShowStreak] = useState(true);
+export function Heatmap({ data }: { data: HeatmapData }) {
+  const entries = [...data.entries].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  const weeks: typeof entries[] = [];
 
-  // Group by weeks
-  const weeks: HeatmapEntry[][] = [];
-  let currentWeek: HeatmapEntry[] = [];
-
-  const sorted = [...data.entries].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-  sorted.forEach((entry, i) => {
+  let currentWeek: typeof entries = [];
+  entries.forEach((entry) => {
     currentWeek.push(entry);
-    if (new Date(entry.date).getDay() === 0 || i === sorted.length - 1) {
-      weeks.push([...currentWeek]);
+    const weekday = new Date(entry.date).getDay();
+    if (weekday === 0) {
+      weeks.push(currentWeek);
       currentWeek = [];
     }
   });
 
-  const getIntensityClass = (intensity: string) => {
-    switch (intensity) {
-      case 'high': return 'bg-accent-primary shadow-[0_0_8px_rgba(var(--accent-primary-rgb),0.4)]';
-      case 'medium': return 'bg-accent-primary/60';
-      case 'low': return 'bg-accent-primary/30';
-      case 'none': return 'bg-bg-secondary/50';
-      default: return 'bg-bg-secondary/50';
-    }
-  };
-
-  const getMoodColor = (mood: number | null) => {
-    if (mood === null) return null;
-    if (mood >= 4) return 'bg-success shadow-[0_0_4px_rgba(var(--success-rgb),0.6)]';
-    if (mood === 3) return 'bg-accent-tertiary shadow-[0_0_4px_rgba(var(--accent-tertiary-rgb),0.6)]';
-    return 'bg-error shadow-[0_0_4px_rgba(var(--error-rgb),0.6)]';
-  };
+  if (currentWeek.length > 0) {
+    weeks.push(currentWeek);
+  }
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="space-y-5">
+      <div className="flex items-center justify-between gap-4">
         <div>
-          <h3 className="text-xl font-bold text-text-primary tracking-tight">Consistency Matrix</h3>
-          <p className="text-sm text-text-tertiary">Visualizing your study velocity and emotional state.</p>
+          <h3 className="text-lg font-semibold text-white">Focus heatmap</h3>
+          <p className="text-sm text-white/55">Consistency across the last {data.total_days} days.</p>
         </div>
-        <div className="flex gap-3 bg-bg-secondary/30 p-1.5 rounded-2xl border border-border-subtle backdrop-blur-sm">
-          <button 
-            onClick={() => setShowStreak(!showStreak)}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${showStreak ? 'bg-accent-primary text-white shadow-lg shadow-accent-primary/20' : 'text-text-muted hover:text-text-secondary'}`}
-          >
-            <Flame size={14} /> Streak
-          </button>
-          <button 
-            onClick={() => setShowMood(!showMood)}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${showMood ? 'bg-accent-tertiary text-white shadow-lg shadow-accent-tertiary/20' : 'text-text-muted hover:text-text-secondary'}`}
-          >
-            <Smile size={14} /> Mood
-          </button>
+        <div className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/70">
+          {data.active_days} active days
         </div>
       </div>
-      
-      <div className="overflow-x-auto pb-4 custom-scrollbar rounded-xl">
-        <div className="flex gap-2 min-w-max p-1">
-          {weeks.map((week, wIdx) => (
-            <div key={wIdx} className="flex flex-col gap-2">
-              {week.map((day, dIdx) => {
-                const isStreakActive = showStreak && (day.completion_rate || 0) >= 0.7;
-                const moodClass = showMood ? getMoodColor(day.mood_score) : null;
-                const dateStr = new Date(day.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+      <div className="overflow-x-auto">
+        <div className="flex min-w-max gap-2">
+          <div className="flex flex-col gap-2 pt-7">
+            {dayLabels.map((label) => (
+              <div key={label} className="h-4 text-[11px] text-white/35">
+                {label}
+              </div>
+            ))}
+          </div>
+
+          {weeks.map((week, weekIndex) => (
+            <div key={`week-${weekIndex}`} className="flex flex-col gap-2">
+              <div className="h-5 text-center text-[10px] uppercase tracking-[0.18em] text-white/30">
+                {weekIndex + 1}
+              </div>
+              {Array.from({ length: 7 }).map((_, dayIndex) => {
+                const entry = week[dayIndex];
+                const title = entry
+                  ? `${entry.date}: ${entry.tasks_completed}/${entry.tasks_scheduled} tasks`
+                  : 'No data';
 
                 return (
-                  <div 
-                    key={dIdx} 
-                    className={`group w-5 h-5 rounded-[4px] cursor-help transition-all duration-300 hover:scale-125 hover:z-10 relative flex items-center justify-center ${getIntensityClass(day.intensity)}`}
-                  >
-                    {isStreakActive && (
-                      <div className="absolute inset-[-2px] rounded-[6px] border border-accent-secondary/50 animate-pulse shadow-[0_0_10px_rgba(var(--accent-secondary-rgb),0.3)] pointer-events-none" />
-                    )}
-                    
-                    {moodClass && (
-                      <div className={`w-2 h-2 rounded-full ${moodClass} transition-all duration-500`} />
-                    )}
-
-                    {/* Rich Tooltip */}
-                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-32 p-2 bg-bg-surface border border-border-color rounded-xl shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-20 pointer-events-none">
-                      <p className="text-[10px] font-bold text-text-muted mb-1">{dateStr}</p>
-                      <p className="text-xs font-bold text-text-primary">{day.tasks_completed}/{day.tasks_scheduled} Tasks</p>
-                      {day.mood_score && (
-                        <p className="text-[10px] text-text-secondary flex items-center gap-1 mt-1">
-                          Mood: <span className={day.mood_score >= 4 ? 'text-success' : day.mood_score === 3 ? 'text-accent-tertiary' : 'text-error'}>{day.mood_score}/5</span>
-                        </p>
-                      )}
-                      <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[6px] border-t-bg-surface" />
-                    </div>
-                  </div>
+                  <div
+                    key={`cell-${weekIndex}-${dayIndex}`}
+                    title={title}
+                    className={`h-4 w-4 rounded-[5px] ${entry ? intensityStyles[entry.intensity] : 'bg-white/5'} transition-transform hover:scale-110`}
+                  />
                 );
               })}
             </div>
@@ -120,27 +75,13 @@ export function Heatmap({ data }: HeatmapProps) {
         </div>
       </div>
 
-      <div className="flex items-center gap-6 pt-2 border-t border-border-subtle/50 mt-4">
-        <div className="flex items-center gap-2 text-[10px] font-bold text-text-tertiary uppercase tracking-widest">
-          Intensity
-          <div className="flex gap-1">
-            <div className="w-3 h-3 rounded-sm bg-bg-secondary/50" />
-            <div className="w-3 h-3 rounded-sm bg-accent-primary/30" />
-            <div className="w-3 h-3 rounded-sm bg-accent-primary/60" />
-            <div className="w-3 h-3 rounded-sm bg-accent-primary" />
-          </div>
-        </div>
-        
-        {showMood && (
-          <div className="flex items-center gap-2 text-[10px] font-bold text-text-tertiary uppercase tracking-widest">
-            Mood
-            <div className="flex gap-1">
-              <div className="w-3 h-3 rounded-full bg-error" />
-              <div className="w-3 h-3 rounded-full bg-accent-tertiary" />
-              <div className="w-3 h-3 rounded-full bg-success" />
-            </div>
-          </div>
-        )}
+      <div className="flex items-center gap-3 text-[11px] text-white/45">
+        <span>Low</span>
+        <div className="h-3 w-3 rounded-[4px] bg-white/5" />
+        <div className="h-3 w-3 rounded-[4px] bg-sky-300/35" />
+        <div className="h-3 w-3 rounded-[4px] bg-violet-300/45" />
+        <div className="h-3 w-3 rounded-[4px] bg-fuchsia-300/70" />
+        <span>High</span>
       </div>
     </div>
   );

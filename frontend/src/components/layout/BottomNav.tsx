@@ -1,41 +1,29 @@
+import { BarChart2, Calendar, Home, Target, User } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
-import { Home, Target, Calendar, BarChart2 } from 'lucide-react';
 import classes from './BottomNav.module.css';
+
+const items = [
+  { to: '/home', label: 'Home', icon: Home },
+  { to: '/tasks', label: 'Tasks', icon: Calendar },
+  { to: '/insights', label: 'Insights', icon: BarChart2 },
+  { to: '/goals', label: 'Goals', icon: Target },
+  { to: '/profile', label: 'Profile', icon: User },
+];
 
 export const BottomNav = () => {
   return (
-    <nav className={classes.bottomNav}>
-      <NavLink 
-        to="/dashboard" 
-        aria-label="Home"
-        className={({ isActive }) => `${classes.navItem} ${isActive ? classes.active : ''}`}
-      >
-        <Home size={24} />
-      </NavLink>
-      
-      <NavLink 
-        to="/goals" 
-        aria-label="Goals"
-        className={({ isActive }) => `${classes.navItem} ${isActive ? classes.active : ''}`}
-      >
-        <Target size={24} />
-      </NavLink>
-      
-      <NavLink 
-        to="/schedule" 
-        aria-label="Schedule"
-        className={({ isActive }) => `${classes.navItem} ${isActive ? classes.active : ''}`}
-      >
-        <Calendar size={24} />
-      </NavLink>
-
-      <NavLink 
-        to="/insights" 
-        aria-label="Insights"
-        className={({ isActive }) => `${classes.navItem} ${isActive ? classes.active : ''}`}
-      >
-        <BarChart2 size={24} />
-      </NavLink>
+    <nav className={classes.bottomNav} aria-label="Primary">
+      {items.map((item) => (
+        <NavLink
+          key={item.to}
+          to={item.to}
+          aria-label={item.label}
+          className={({ isActive }) => `${classes.navItem} ${isActive ? classes.active : ''}`}
+        >
+          <item.icon size={18} />
+          <span>{item.label}</span>
+        </NavLink>
+      ))}
     </nav>
   );
 };

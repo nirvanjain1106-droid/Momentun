@@ -187,20 +187,6 @@ async def undo_task(
 
 
 @router.get(
-    "/{task_id}",
-    response_model=TaskDetailResponse,
-    summary="Get task details",
-    description="Retrieve full details for a specific task. Enforces strict ownership.",
-)
-async def get_task(
-    task_id: uuid.UUID,
-    current_user: CurrentUserComplete,
-    db: DB,
-) -> TaskDetailResponse:
-    return await task_service.get_task_detail(current_user.id, task_id, db)
-
-
-@router.get(
     "/parked",
     response_model=ParkedTasksListResponse,
     summary="View later",
@@ -218,6 +204,20 @@ async def get_parked_tasks(
     ),
 ) -> ParkedTasksListResponse:
     return await task_service.get_parked_tasks(current_user.id, db, stale_only=stale)
+
+
+@router.get(
+    "/{task_id}",
+    response_model=TaskDetailResponse,
+    summary="Get task details",
+    description="Retrieve full details for a specific task. Enforces strict ownership.",
+)
+async def get_task(
+    task_id: uuid.UUID,
+    current_user: CurrentUserComplete,
+    db: DB,
+) -> TaskDetailResponse:
+    return await task_service.get_task_detail(current_user.id, task_id, db)
 
 
 @router.delete(

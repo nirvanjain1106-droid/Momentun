@@ -1,18 +1,18 @@
 .bottomNav {
-  display: flex;
   position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 64px;
-  background-color: var(--bg-secondary);
-  border-top: 1px solid var(--border-color);
+  left: 12px;
+  right: 12px;
+  bottom: calc(var(--sab) + 10px);
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+  padding: 8px;
+  border-radius: 28px;
+  background: rgba(11, 18, 32, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.3);
+  backdrop-filter: blur(24px);
   z-index: var(--z-bottom-nav);
-  justify-content: space-around;
-  align-items: center;
-  padding-bottom: max(12px, var(--sab));
-  padding-left: var(--sal);
-  padding-right: var(--sar);
 }
 
 @media (min-width: 768px) {
@@ -23,18 +23,25 @@
 
 .navItem {
   display: flex;
+  min-height: 58px;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  color: var(--text-secondary);
+  gap: 4px;
+  border-radius: 22px;
+  color: rgba(226, 232, 240, 0.72);
   text-decoration: none;
-  padding: var(--spacing-2);
-  border-radius: var(--border-radius-lg);
-  transition: all var(--transition-fast);
-  min-height: 48px;
-  min-width: 48px;
+  transition: transform var(--transition-fast), background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.navItem span {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
 }
 
 .navItem.active {
-  color: var(--accent-primary);
+  color: #ffffff;
+  background: linear-gradient(135deg, rgba(167, 139, 250, 0.32), rgba(125, 211, 252, 0.22));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }

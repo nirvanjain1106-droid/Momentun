@@ -1,94 +1,65 @@
-﻿<!-- dgc-policy-v11 -->
-# Dual-Graph Context Policy
+# CLAUDE.md
 
-This project uses a local dual-graph MCP server for efficient context retrieval.
+Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
 
-## MANDATORY: Adaptive graph_continue rule
+**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
 
-**Call `graph_continue` ONLY when you do NOT already know the relevant files.**
+## 1. Think Before Coding
 
-### Call `graph_continue` when:
-- This is the first message of a new task / conversation
-- The task shifts to a completely different area of the codebase
-- You need files you haven't read yet in this session
+**Don't assume. Don't hide confusion. Surface tradeoffs.**
 
-### SKIP `graph_continue` when:
-- You already identified the relevant files earlier in this conversation
-- You are doing follow-up work on files already read (verify, refactor, test, docs, cleanup, commit)
-- The task is pure text (writing a commit message, summarising, explaining)
+Before implementing:
+- State your assumptions explicitly. If uncertain, ask.
+- If multiple interpretations exist, present them - don't pick silently.
+- If a simpler approach exists, say so. Push back when warranted.
+- If something is unclear, stop. Name what's confusing. Ask.
 
-**If skipping, go directly to `graph_read` on the already-known `file::symbol`.**
+## 2. Simplicity First
 
-## When you DO call graph_continue
+**Minimum code that solves the problem. Nothing speculative.**
 
-1. **If `graph_continue` returns `needs_project=true`**: call `graph_scan` with `pwd`. Do NOT ask the user.
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No "flexibility" or "configurability" that wasn't requested.
+- No error handling for impossible scenarios.
+- If you write 200 lines and it could be 50, rewrite it.
 
-2. **If `graph_continue` returns `skip=true`**: fewer than 5 files  - read only specifically named files.
+Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
 
-3. **Read `recommended_files`** using `graph_read`.
-   - Always use `file::symbol` notation (e.g. `src/auth.ts::handleLogin`)  - never read whole files.
-   - `recommended_files` entries that already contain `::` must be passed verbatim.
+## 3. Surgical Changes
 
-4. **Obey confidence caps:**
-   - `confidence=high` -> Stop. Do NOT grep or explore further.
-   - `confidence=medium` -> `fallback_rg` at most `max_supplementary_greps` times, then `graph_read` at most `max_supplementary_files` more symbols. Stop.
-   - `confidence=low` -> same as medium. Stop.
+**Touch only what you must. Clean up only your own mess.**
 
-## Session State (compact, update after every turn)
+When editing existing code:
+- Don't "improve" adjacent code, comments, or formatting.
+- Don't refactor things that aren't broken.
+- Match existing style, even if you'd do it differently.
+- If you notice unrelated dead code, mention it - don't delete it.
 
-Maintain a short JSON block in your working memory. Update it after each turn:
+When your changes create orphans:
+- Remove imports/variables/functions that YOUR changes made unused.
+- Don't remove pre-existing dead code unless asked.
 
-```json
-{
-  "files_identified": ["path/to/file.py"],
-  "symbols_changed": ["module::function"],
-  "fix_applied": true,
-  "features_added": ["description"],
-  "open_issues": ["one-line note"]
-}
+The test: Every changed line should trace directly to the user's request.
+
+## 4. Goal-Driven Execution
+
+**Define success criteria. Loop until verified.**
+
+Transform tasks into verifiable goals:
+- "Add validation" → "Write tests for invalid inputs, then make them pass"
+- "Fix the bug" → "Write a test that reproduces it, then make it pass"
+- "Refactor X" → "Ensure tests pass before and after"
+
+For multi-step tasks, state a brief plan:
+```
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+3. [Step] → verify: [check]
 ```
 
-Use this state  - not prose summaries  - to remember what's been done across turns.
+Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
 
-## Token Usage
+---
 
-A `token-counter` MCP is available for tracking live token usage.
-
-- Before reading a large file: `count_tokens({text: "<content>"})` to check cost first.
-- To show running session cost: `get_session_stats()`
-- To log completed task: `log_usage({input_tokens: N, output_tokens: N, description: "task"})`
-
-## Rules
-
-- Do NOT use `rg`, `grep`, or bash file exploration before calling `graph_continue` (when required).
-- Do NOT do broad/recursive exploration at any confidence level.
-- `max_supplementary_greps` and `max_supplementary_files` are hard caps  - never exceed them.
-- Do NOT call `graph_continue` more than once per turn.
-- Always use `file::symbol` notation with `graph_read`  - never bare filenames.
-- After edits, call `graph_register_edit` with changed files using `file::symbol` notation.
-
-## Context Store
-
-Whenever you make a decision, identify a task, note a next step, fact, or blocker during a conversation, append it to `.dual-graph/context-store.json`.
-
-**Entry format:**
-```json
-{"type": "decision|task|next|fact|blocker", "content": "one sentence max 15 words", "tags": ["topic"], "files": ["relevant/file.ts"], "date": "YYYY-MM-DD"}
-```
-
-**To append:** Read the file -> add the new entry to the array -> Write it back -> call `graph_register_edit` on `.dual-graph/context-store.json`.
-
-**Rules:**
-- Only log things worth remembering across sessions (not every minor detail)
-- `content` must be under 15 words
-- `files` lists the files this decision/task relates to (can be empty)
-- Log immediately when the item arises  - not at session end
-
-## Session End
-
-When the user signals they are done (e.g. "bye", "done", "wrap up", "end session"), proactively update `CONTEXT.md` in the project root with:
-- **Current Task**: one sentence on what was being worked on
-- **Key Decisions**: bullet list, max 3 items
-- **Next Steps**: bullet list, max 3 items
-
-Keep `CONTEXT.md` under 20 lines total. Do NOT summarize the full conversation  - only what's needed to resume next session.
+**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.

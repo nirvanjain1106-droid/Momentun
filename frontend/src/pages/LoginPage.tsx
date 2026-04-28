@@ -22,13 +22,13 @@ export default function LoginPage() {
 
     try {
       const response = await client.post('/auth/login', { email, password });
-      const { user_id, onboarding_complete, access_token } = response.data;
+      const { user_id, name, onboarding_complete, access_token } = response.data;
       
       setAccessToken(access_token);
-      login(user_id, '', onboarding_complete);
+      login(user_id, name, onboarding_complete);
       
       if (onboarding_complete) {
-        navigate('/dashboard');
+        navigate('/home');
       } else {
         navigate('/onboarding');
       }

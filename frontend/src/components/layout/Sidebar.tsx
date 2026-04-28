@@ -1,58 +1,38 @@
+import { BarChart2, Calendar, Home, Target, User } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
-import { Home, Target, Calendar, BarChart2, Settings } from 'lucide-react';
 import classes from './Sidebar.module.css';
+
+const items = [
+  { to: '/home', label: 'Home', icon: Home },
+  { to: '/tasks', label: 'Tasks', icon: Calendar },
+  { to: '/insights', label: 'Insights', icon: BarChart2 },
+  { to: '/goals', label: 'Goals', icon: Target },
+  { to: '/profile', label: 'Profile', icon: User },
+];
 
 export const Sidebar = () => {
   return (
     <aside className={classes.sidebar}>
       <div className={classes.logo}>
         <div className={classes.logoMark} />
-        <h2>Momentum</h2>
+        <div>
+          <h2>Momentum</h2>
+          <p>Adaptive scheduling</p>
+        </div>
       </div>
-      
+
       <nav className={classes.nav}>
-        <NavLink 
-          to="/dashboard" 
-          className={({ isActive }) => `${classes.navItem} ${isActive ? classes.active : ''}`}
-        >
-          <Home size={20} />
-          <span>Dashboard</span>
-        </NavLink>
-        
-        <NavLink 
-          to="/goals" 
-          className={({ isActive }) => `${classes.navItem} ${isActive ? classes.active : ''}`}
-        >
-          <Target size={20} />
-          <span>Goals</span>
-        </NavLink>
-        
-        <NavLink 
-          to="/schedule" 
-          className={({ isActive }) => `${classes.navItem} ${isActive ? classes.active : ''}`}
-        >
-          <Calendar size={20} />
-          <span>Schedule</span>
-        </NavLink>
-
-        <NavLink 
-          to="/insights" 
-          className={({ isActive }) => `${classes.navItem} ${isActive ? classes.active : ''}`}
-        >
-          <BarChart2 size={20} />
-          <span>Insights</span>
-        </NavLink>
+        {items.map((item) => (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            className={({ isActive }) => `${classes.navItem} ${isActive ? classes.active : ''}`}
+          >
+            <item.icon size={18} />
+            <span>{item.label}</span>
+          </NavLink>
+        ))}
       </nav>
-
-      <div className={classes.footer}>
-        <NavLink 
-          to="/settings" 
-          className={({ isActive }) => `${classes.navItem} ${isActive ? classes.active : ''}`}
-        >
-          <Settings size={20} />
-          <span>Settings</span>
-        </NavLink>
-      </div>
     </aside>
   );
 };

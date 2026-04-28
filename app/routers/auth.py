@@ -33,11 +33,12 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 @limiter.limit(settings.RATE_LIMIT_AUTH)
 async def register(request: Request, response: Response, data: RegisterRequest, db: DB) -> TokenResponse:
     auth_response, refresh_token = await auth_service.register_user(data, db)
+    _secure = settings.APP_ENV == "production"
     response.set_cookie(
         key="access_token",
         value=auth_response.access_token,
         httponly=True,
-        secure=True,
+        secure=_secure,
         samesite="lax",
         path="/api/v1",
         max_age=1800,
@@ -46,7 +47,7 @@ async def register(request: Request, response: Response, data: RegisterRequest, 
         key="refresh_token",
         value=refresh_token,
         httponly=True,
-        secure=True,
+        secure=_secure,
         samesite="lax",
         path="/api/v1",
         max_age=604800,
@@ -62,11 +63,12 @@ async def register(request: Request, response: Response, data: RegisterRequest, 
 @limiter.limit(settings.RATE_LIMIT_AUTH)
 async def login(request: Request, response: Response, data: LoginRequest, db: DB) -> TokenResponse:
     auth_response, refresh_token = await auth_service.login_user(data, db)
+    _secure = settings.APP_ENV == "production"
     response.set_cookie(
         key="access_token",
         value=auth_response.access_token,
         httponly=True,
-        secure=True,
+        secure=_secure,
         samesite="lax",
         path="/api/v1",
         max_age=1800,
@@ -75,7 +77,7 @@ async def login(request: Request, response: Response, data: LoginRequest, db: DB
         key="refresh_token",
         value=refresh_token,
         httponly=True,
-        secure=True,
+        secure=_secure,
         samesite="lax",
         path="/api/v1",
         max_age=604800,
@@ -93,8 +95,9 @@ async def login(request: Request, response: Response, data: LoginRequest, db: DB
     ),
 )
 async def refresh(request: Request, response: Response, db: DB, data: RefreshRequest | None = None) -> AccessTokenResponse:
-    content_type = request.headers.get("content-type")
-    if content_type != "application/json":
+    # Relaxed content-type check — axios may omit Content-Type on empty-body POSTs
+    content_type = request.headers.get("content-type", "")
+    if content_type and "application/json" not in content_type and "application/x-www-form-urlencoded" not in content_type:
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             detail="Content-Type must be application/json",
@@ -108,12 +111,13 @@ async def refresh(request: Request, response: Response, db: DB, data: RefreshReq
         )
 
     result = await auth_service.refresh_access_token(refresh_token, db)
-    
+    _secure = settings.APP_ENV == "production"
+
     response.set_cookie(
         key="access_token",
         value=result["access_token"],
         httponly=True,
-        secure=True,
+        secure=_secure,
         samesite="lax",
         path="/api/v1",
         max_age=1800,
@@ -124,7 +128,7 @@ async def refresh(request: Request, response: Response, db: DB, data: RefreshReq
             key="refresh_token",
             value=result["new_refresh_token"],
             httponly=True,
-            secure=True,
+            secure=_secure,
             samesite="lax",
             path="/api/v1",
             max_age=604800,
@@ -192,11 +196,12 @@ async def confirm_password_reset(
 async def logout(request: Request, response: Response, db: DB, current_user: CurrentUser) -> LogoutResponse:
     refresh_token = request.cookies.get("refresh_token")
     result = await auth_service.logout(refresh_token, db)
+    _secure = settings.APP_ENV == "production"
     response.set_cookie(
         key="access_token",
         value="",
         httponly=True,
-        secure=True,
+        secure=_secure,
         samesite="lax",
         path="/api/v1",
         max_age=0,
@@ -205,7 +210,7 @@ async def logout(request: Request, response: Response, db: DB, current_user: Cur
         key="refresh_token",
         value="",
         httponly=True,
-        secure=True,
+        secure=_secure,
         samesite="lax",
         path="/api/v1",
         max_age=0,

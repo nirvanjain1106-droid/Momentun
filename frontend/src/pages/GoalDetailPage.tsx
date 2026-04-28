@@ -1,179 +1,268 @@
 import { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { ArrowLeft, Check, Pause, Play, Target, TrendingUp } from 'lucide-react';
+import { Link, useParams } from 'react-router-dom';
 import { client } from '../api/client';
-import { ArrowLeft, Target, TrendingUp, Pause, Check } from 'lucide-react';
-import { useUIStore } from '../stores/uiStore';
 import type { Goal } from '../stores/goalStore';
-// Recharts will be added in Sprint 4 
-// import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import { useUIStore } from '../stores/uiStore';
 
 export default function GoalDetailPage() {
   const { goalId } = useParams();
+  const { addToast } = useUIStore();
   const [goal, setGoal] = useState<Goal | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
-  const [editForm, setEditForm] = useState({ title: '', description: '', motivation: '', consequence: '' });
-  const { addToast } = useUIStore();
-  
+  const [editForm, setEditForm] = useState({
+    title: '',
+    description: '',
+    motivation: '',
+    consequence: '',
+  });
+
   useEffect(() => {
-    async function loadData() {
+    let ignore = false;
+
+    async function loadGoal() {
       setIsLoading(true);
       try {
-        const goalRes = await client.get(`/goals/${goalId}`);
-        setGoal(goalRes.data);
+        const response = await client.get(`/goals/${goalId}`);
+        if (ignore) return;
+        setGoal(response.data);
         setEditForm({
-          title: goalRes.data.title || '',
-          description: goalRes.data.description || '',
-          motivation: goalRes.data.motivation || '',
-          consequence: goalRes.data.consequence || ''
+          title: response.data.title ?? '',
+          description: response.data.description ?? '',
+          motivation: response.data.motivation ?? '',
+          consequence: response.data.consequence ?? '',
         });
       } catch {
-        useUIStore.getState().addToast({ type: 'error', message: 'Failed to load goal details' });
+        addToast({ type: 'error', message: 'Failed to load goal details.' });
       } finally {
-        setIsLoading(false);
+        if (!ignore) setIsLoading(false);
       }
     }
-    if (goalId) loadData();
-  }, [goalId]);
 
-  const handleStatusChange = async (newStatus: string) => {
+    if (goalId) {
+      void loadGoal();
+    }
+
+    return () => {
+      ignore = true;
+    };
+  }, [addToast, goalId]);
+
+  const handlePause = async () => {
     if (!goal) return;
     try {
-      const res = await client.patch(`/goals/${goal.id}/status`, { status: newStatus });
-      setGoal({ ...goal, status: res.data.status });
-      addToast({ type: 'success', message: `Goal marked as ${newStatus}` });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to update status';
-      addToast({ type: 'error', message: msg });
+      const response = await client.post(`/goals/${goal.id}/pause`);
+      setGoal({ ...goal, ...response.data, status: 'paused' });
+      addToast({ type: 'success', message: 'Goal paused.' });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to pause goal';
+      addToast({ type: 'error', message });
     }
   };
 
-  const handleEditSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleResume = async () => {
     if (!goal) return;
     try {
-      const res = await client.put(`/goals/${goal.id}`, editForm);
-      setGoal({ ...goal, ...res.data });
+      const response = await client.post(`/goals/${goal.id}/resume`);
+      setGoal({ ...goal, ...response.data, status: 'active' });
+      addToast({ type: 'success', message: 'Goal resumed.' });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to resume goal';
+      addToast({ type: 'error', message });
+    }
+  };
+
+  const handleAchieve = async () => {
+    if (!goal) return;
+    try {
+      await client.patch(`/goals/${goal.id}/status`, { status: 'achieved' });
+      setGoal({ ...goal, status: 'achieved' });
+      addToast({ type: 'success', message: 'Goal marked achieved.' });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to update goal status';
+      addToast({ type: 'error', message });
+    }
+  };
+
+  const handleEditSave = async () => {
+    if (!goal) return;
+    try {
+      const response = await client.put(`/goals/${goal.id}`, editForm);
+      setGoal({ ...goal, ...response.data });
       setIsEditing(false);
-      addToast({ type: 'success', message: 'Goal updated successfully' });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to update goal';
-      addToast({ type: 'error', message: msg });
+      addToast({ type: 'success', message: 'Goal updated.' });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to update goal';
+      addToast({ type: 'error', message });
     }
   };
 
-  if (isLoading) return <div className="p-8 animate-pulse text-text-muted">Loading goal details...</div>;
-  if (!goal) return <div className="p-8 text-center text-text-muted">Goal not found.</div>;
-
-  return (
-    <div className="max-w-5xl mx-auto p-6 space-y-8 animate-in fade-in duration-500">
-      <Link to="/goals" className="inline-flex items-center text-text-muted hover:text-primary-400 mb-2 transition-colors">
-        <ArrowLeft size={16} className="mr-1" /> Back to Goals
-      </Link>
-      
-      <header className="flex items-start justify-between">
-        <div>
-          <div className="flex items-center gap-3 mb-2">
-            <span className="bg-primary-500/20 text-primary-400 px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wider">
-              Rank #{goal.priority_rank}
-            </span>
-            <span className="text-text-muted text-sm capitalize">{goal.status}</span>
-          </div>
-          {isEditing ? (
-            <input 
-              value={editForm.title} 
-              onChange={e => setEditForm(p => ({ ...p, title: e.target.value }))}
-              className="text-3xl font-bold bg-bg-surface border border-border-subtle rounded px-2 w-full mb-2"
-            />
-          ) : (
-            <h1 className="text-3xl font-bold text-text-primary">{goal.title}</h1>
-          )}
-          {isEditing ? (
-            <textarea 
-              value={editForm.description} 
-              onChange={e => setEditForm(p => ({ ...p, description: e.target.value }))}
-              className="text-text-secondary mt-2 w-full max-w-2xl bg-bg-surface border border-border-subtle rounded px-2 min-h-[80px]"
-            />
-          ) : (
-            <p className="text-text-secondary mt-2 max-w-2xl">{goal.description}</p>
-          )}
-        </div>
-        
-        <div className="flex flex-col gap-2">
-           <div className="flex gap-2 justify-end">
-             <button onClick={() => setIsEditing(!isEditing)} className="text-text-muted hover:text-text-primary px-3 py-2 text-sm transition-colors">
-               {isEditing ? 'Cancel' : 'Edit'}
-             </button>
-             {isEditing && (
-               <button onClick={handleEditSubmit} className="bg-primary-500 hover:bg-primary-600 text-white px-4 py-2 rounded-lg text-sm transition-colors">
-                 Save
-               </button>
-             )}
-           </div>
-           {!isEditing && (
-             <div className="flex gap-2">
-               {goal.status === 'active' && (
-                 <button onClick={() => handleStatusChange('paused')} className="bg-bg-elevated hover:bg-bg-hover text-warning p-2 rounded-lg transition-colors" title="Pause">
-                   <Pause size={20} />
-                 </button>
-               )}
-               {goal.status === 'paused' && (
-                 <button onClick={() => handleStatusChange('active')} className="bg-bg-elevated hover:bg-bg-hover text-primary-400 p-2 rounded-lg transition-colors" title="Resume">
-                   Resume
-                 </button>
-               )}
-               {goal.status === 'active' && (
-                 <button onClick={() => handleStatusChange('completed')} className="bg-success text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2 hover:bg-emerald-600 transition-colors">
-                   <Check size={18} /> Achieve
-                 </button>
-               )}
-             </div>
-           )}
-        </div>
-      </header>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="surface-card p-6 col-span-1 flex flex-col items-center justify-center min-h-[300px]">
-          <Target size={48} className="text-primary-500 mb-4" />
-          <h3 className="text-5xl font-bold text-text-primary mb-2">{goal.progress_percentage}%</h3>
-          <p className="text-text-secondary text-sm uppercase tracking-wide">Completion Progress</p>
-        </div>
-        
-        <div className="surface-card p-6 col-span-1 lg:col-span-2 min-h-[300px] flex items-center justify-center">
-          <div className="text-center text-text-muted w-full">
-            <TrendingUp size={32} className="mx-auto mb-3 opacity-50" />
-            <p>Trajectory chart implementation planned for Sprint 4</p>
-            <p className="text-xs uppercase mt-2 opacity-70">Recharts integration pending</p>
-          </div>
+  if (isLoading) {
+    return (
+      <div className="page-shell-light min-h-full rounded-[32px] p-4 sm:p-6">
+        <div className="mx-auto flex min-h-[360px] max-w-5xl items-center justify-center text-sm text-slate-400">
+          Loading goal details...
         </div>
       </div>
-      
-      <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
-         <div className="p-5 bg-bg-surface border border-border-subtle rounded-xl flex flex-col">
-            <h3 className="font-semibold text-text-primary mb-2">Motivation</h3>
+    );
+  }
+
+  if (!goal) {
+    return (
+      <div className="page-shell-light min-h-full rounded-[32px] p-4 sm:p-6">
+        <div className="mx-auto flex min-h-[360px] max-w-5xl items-center justify-center text-sm text-slate-500">
+          Goal not found.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="page-shell-light min-h-full rounded-[32px] p-4 sm:p-6">
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
+        <Link to="/goals" className="inline-flex items-center gap-2 text-sm font-medium text-slate-500">
+          <ArrowLeft size={16} />
+          Back to goals
+        </Link>
+
+        <header className="light-surface rounded-[30px] p-5">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="rounded-full bg-slate-950 px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.18em] text-white">
+                  Rank #{goal.priority_rank}
+                </span>
+                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.18em] text-slate-500">
+                  {goal.status}
+                </span>
+              </div>
+
+              {isEditing ? (
+                <input
+                  value={editForm.title}
+                  onChange={(event) => setEditForm((state) => ({ ...state, title: event.target.value }))}
+                  className="mt-4 w-full rounded-[20px] border border-slate-200 bg-white px-3 py-3 text-3xl font-semibold text-slate-950 outline-none"
+                />
+              ) : (
+                <h1 className="mt-4 text-3xl font-semibold tracking-tight text-slate-950">{goal.title}</h1>
+              )}
+
+              {isEditing ? (
+                <textarea
+                  value={editForm.description}
+                  onChange={(event) => setEditForm((state) => ({ ...state, description: event.target.value }))}
+                  className="mt-3 min-h-[96px] w-full rounded-[24px] border border-slate-200 bg-white px-3 py-3 text-sm leading-6 text-slate-600 outline-none"
+                />
+              ) : (
+                <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-500">
+                  {goal.description || 'A clear target with just enough emotional context to keep the effort honest.'}
+                </p>
+              )}
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setIsEditing((value) => !value)}
+                className="rounded-full border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700"
+              >
+                {isEditing ? 'Cancel' : 'Edit'}
+              </button>
+              {isEditing ? (
+                <button
+                  type="button"
+                  onClick={() => void handleEditSave()}
+                  className="rounded-full bg-slate-950 px-4 py-3 text-sm font-medium text-white"
+                >
+                  Save changes
+                </button>
+              ) : (
+                <>
+                  {goal.status === 'active' && (
+                    <button type="button" onClick={handlePause} className="rounded-full border border-slate-200 bg-white p-3 text-slate-700">
+                      <Pause size={16} />
+                    </button>
+                  )}
+                  {goal.status === 'paused' && (
+                    <button type="button" onClick={handleResume} className="rounded-full border border-slate-200 bg-white p-3 text-slate-700">
+                      <Play size={16} />
+                    </button>
+                  )}
+                  {goal.status === 'active' && (
+                    <button type="button" onClick={handleAchieve} className="inline-flex items-center gap-2 rounded-full bg-slate-950 px-4 py-3 text-sm font-medium text-white">
+                      <Check size={16} />
+                      Achieve
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </header>
+
+        <section className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
+          <div className="light-surface flex min-h-[260px] flex-col items-center justify-center rounded-[30px] p-5">
+            <div className="rounded-[26px] bg-[linear-gradient(135deg,rgba(196,181,253,0.28),rgba(186,230,253,0.2),rgba(253,230,138,0.16))] p-[1px]">
+              <div className="flex h-36 w-36 items-center justify-center rounded-[25px] bg-white/88">
+                <div className="text-center">
+                  <Target size={30} className="mx-auto text-violet-500" />
+                  <p className="mt-3 text-4xl font-semibold text-slate-950">{goal.progress_percentage}%</p>
+                  <p className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-400">Progress</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="light-surface rounded-[30px] p-5">
+            <div className="flex items-center gap-3">
+              <div className="rounded-2xl bg-slate-100 p-3 text-slate-700">
+                <TrendingUp size={18} />
+              </div>
+              <div>
+                <h2 className="text-xl font-semibold text-slate-950">Trajectory</h2>
+                <p className="text-sm text-slate-500">Detail analytics will deepen here as the goal progresses.</p>
+              </div>
+            </div>
+
+            <div className="mt-5 rounded-[24px] border border-slate-200 bg-slate-50 px-4 py-5 text-sm leading-6 text-slate-500">
+              This goal detail surface stays intentionally simple in this phase: edit the core narrative, pause or resume cleanly, and keep the progress visible without hiding it behind dense analytics.
+            </div>
+          </div>
+        </section>
+
+        <section className="grid gap-5 md:grid-cols-2">
+          <div className="light-surface rounded-[30px] p-5">
+            <h2 className="text-xl font-semibold text-slate-950">Motivation</h2>
             {isEditing ? (
-              <textarea 
-                value={editForm.motivation} 
-                onChange={e => setEditForm(p => ({ ...p, motivation: e.target.value }))}
-                className="text-text-secondary leading-relaxed bg-bg-primary border border-border-subtle rounded px-2 py-1 flex-1 min-h-[80px]"
+              <textarea
+                value={editForm.motivation}
+                onChange={(event) => setEditForm((state) => ({ ...state, motivation: event.target.value }))}
+                className="mt-4 min-h-[140px] w-full rounded-[24px] border border-slate-200 bg-white px-3 py-3 text-sm leading-6 text-slate-600 outline-none"
               />
             ) : (
-              <p className="text-text-secondary leading-relaxed flex-1">{goal.motivation || "No motivation defined."}</p>
+              <p className="mt-4 text-sm leading-6 text-slate-500">
+                {goal.motivation || 'No explicit motivation saved for this goal yet.'}
+              </p>
             )}
-         </div>
-         <div className="p-5 bg-bg-surface border border-border-subtle rounded-xl flex flex-col">
-            <h3 className="font-semibold text-warning mb-2">Consequence</h3>
+          </div>
+
+          <div className="light-surface rounded-[30px] p-5">
+            <h2 className="text-xl font-semibold text-slate-950">Stakes</h2>
             {isEditing ? (
-              <textarea 
-                value={editForm.consequence} 
-                onChange={e => setEditForm(p => ({ ...p, consequence: e.target.value }))}
-                className="text-text-secondary leading-relaxed bg-bg-primary border border-border-subtle rounded px-2 py-1 flex-1 min-h-[80px]"
+              <textarea
+                value={editForm.consequence}
+                onChange={(event) => setEditForm((state) => ({ ...state, consequence: event.target.value }))}
+                className="mt-4 min-h-[140px] w-full rounded-[24px] border border-slate-200 bg-white px-3 py-3 text-sm leading-6 text-slate-600 outline-none"
               />
             ) : (
-              <p className="text-text-secondary leading-relaxed flex-1">{goal.consequence || "No consequence defined."}</p>
+              <p className="mt-4 text-sm leading-6 text-slate-500">
+                {goal.consequence || 'No consequence has been written down for this goal yet.'}
+              </p>
             )}
-         </div>
-      </section>
+          </div>
+        </section>
+      </div>
     </div>
   );
 }

@@ -42,10 +42,12 @@ export const useGoalStore = create<GoalState>((set, get) => ({
     try {
       const url = status ? `/goals?status=${status}` : '/goals';
       const response = await client.get(url);
-      set({ goals: response.data.items });
-    } catch (error) {
+      // Guard: items may be undefined if the shape changes or the call races
+      set({ goals: response.data?.items ?? [] });
+    } catch {
+      // Don't rethrow — a toast is sufficient; rethrowing crashes GoalsPage
+      set({ goals: [] });
       useUIStore.getState().addToast({ type: 'error', message: 'Failed to load goals.' });
-      throw error;
     } finally {
       set({ isLoading: false });
     }

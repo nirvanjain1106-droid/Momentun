@@ -27,24 +27,41 @@ export default function OnboardingPage() {
   const [currentStep, setCurrentStep] = useState(0);
   const [loading, setLoading] = useState(true);
 
-  // Resume status
+  // Resume status — also handles redirect if already complete
   useEffect(() => {
     if (onboardingComplete) {
-      navigate('/dashboard');
+      navigate('/home', { replace: true });
       return;
     }
 
     const checkStatus = async () => {
       try {
         const response = await client.get('/onboarding/status');
-        // response.data.current_step is e.g. "academic", "health", "behavioural", "fixed_blocks", "goal"
-        const stepId = response.data.current_step;
-        const stepIndex = STEPS.findIndex(s => s.id === stepId || (stepId === 'fixed_blocks' && s.id === 'fixed'));
-        if (stepIndex > -1) {
-          setCurrentStep(stepIndex);
+        const data = response.data;
+
+        // If backend already says complete, sync store and redirect
+        if (data.onboarding_complete) {
+          setOnboardingComplete(true);
+          navigate('/home', { replace: true });
+          return;
         }
+
+        // next_step is one of: "academic_profile", "behavioural_profile",
+        // "fixed_blocks", "first_goal", or null when done
+        const stepId: string | null = data.next_step;
+        if (!stepId) return;
+
+        // Map backend step name → wizard index
+        const stepMap: Record<string, number> = {
+          academic_profile: 0,
+          health_profile: 1,
+          behavioural_profile: 2,
+          fixed_blocks: 3,
+          first_goal: 4,
+        };
+        const idx = stepMap[stepId];
+        if (idx !== undefined) setCurrentStep(idx);
       } catch {
-        // If it fails, start from beginning
         setCurrentStep(0);
       } finally {
         setLoading(false);
@@ -52,15 +69,17 @@ export default function OnboardingPage() {
     };
 
     checkStatus();
-  }, [onboardingComplete, navigate]);
+  }, [onboardingComplete, navigate, setOnboardingComplete]);
 
-  const handleNext = async () => {
+  const handleNext = () => {
     if (currentStep < STEPS.length - 1) {
       setCurrentStep(curr => curr + 1);
     } else {
-      // Completed last step!
+      // Final step: GoalSetupForm already awaited the POST successfully.
+      // Set the flag synchronously — Zustand flushes before the next render,
+      // so AuthGate will read onboardingComplete=true when it evaluates.
       setOnboardingComplete(true);
-      navigate('/dashboard');
+      navigate('/home', { replace: true });
     }
   };
 

@@ -292,6 +292,7 @@ async def save_first_goal(
         consequence=data.consequence,
         success_metric=data.success_metric,
         status="active",
+        priority_rank=1,            # required by CHECK: active goals must have non-NULL rank
         goal_metadata=data.metadata or {},
     )
     db.add(goal)

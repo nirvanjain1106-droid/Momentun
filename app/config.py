@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     SCHEDULE_REGEN_LOCK_TIMEOUT: int = 60
 
     # CORS
-    ALLOWED_ORIGIN_REGEX: str = r"^https://momentum(-[a-z0-9]+)*\.vercel\.app$|^http://localhost:(5173|3000|8080)$"
+    ALLOWED_ORIGIN_REGEX: str = r"^https://momentum(-[a-z0-9]+)*\.vercel\.app$|^http://(localhost|127\.0\.0\.1):(5173|4173|3000|8080)$"
 
     # Email / SMTP
     SMTP_HOST: str = ""

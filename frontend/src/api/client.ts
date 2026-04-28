@@ -55,8 +55,9 @@ client.interceptors.response.use(
   async (error: AxiosError) => {
     const originalRequest = error.config as InternalAxiosRequestConfig | undefined;
     
-    // Detect offline state
-    if (!error.response && !useUIStore.getState().isOffline) {
+    // Detect offline state — only trust navigator.onLine to avoid
+    // false positives from CORS errors or server restarts during dev
+    if (!error.response && !navigator.onLine) {
       useUIStore.getState().setOffline(true);
     }
 

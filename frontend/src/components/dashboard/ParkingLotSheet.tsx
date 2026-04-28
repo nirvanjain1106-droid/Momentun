@@ -1,7 +1,7 @@
-import React, { useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
+import { X } from 'lucide-react';
 import { useUIStore } from '../../stores/uiStore';
 import { ParkingLotPanel } from './ParkingLotPanel';
-import { X } from 'lucide-react';
 
 export const ParkingLotSheet: React.FC = () => {
   const { activeModal, closeModal } = useUIStore();
@@ -9,8 +9,8 @@ export const ParkingLotSheet: React.FC = () => {
   const overlayRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && isOpen) {
         closeModal();
       }
     };
@@ -18,49 +18,42 @@ export const ParkingLotSheet: React.FC = () => {
     if (isOpen) {
       document.addEventListener('keydown', handleEscape);
     }
+
     return () => {
       document.removeEventListener('keydown', handleEscape);
     };
-  }, [isOpen, closeModal]);
-
-  const handleBackdropClick = (e: React.MouseEvent) => {
-    if (e.target === overlayRef.current) {
-      closeModal();
-    }
-  };
+  }, [closeModal, isOpen]);
 
   if (!isOpen) return null;
 
   return (
-    <div 
+    <div
       ref={overlayRef}
-      role="dialog" 
-      aria-modal="true" 
+      role="dialog"
+      aria-modal="true"
       id="parking-sheet"
-      onClick={handleBackdropClick}
-      className="fixed inset-0 flex items-end sm:items-center justify-center animate-in fade-in duration-200"
-      style={{ 
-        zIndex: 'var(--z-modal-backdrop)', 
-        backgroundColor: 'rgba(0,0,0,0.6)' 
+      onClick={(event) => {
+        if (event.target === overlayRef.current) closeModal();
       }}
+      className="fixed inset-0 z-[100] flex items-end justify-center bg-slate-950/45 p-3 backdrop-blur-md sm:items-center"
     >
-      <div 
-        className="w-full h-[85vh] sm:h-[80vh] sm:max-w-md bg-white dark:bg-gray-800 rounded-t-3xl sm:rounded-xl shadow-xl flex flex-col animate-in slide-in-from-bottom-full duration-300"
-        style={{ zIndex: 'var(--z-modal)' }}
-      >
-        <div className="flex justify-between items-center p-4 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Parking Lot</h2>
-          <button 
-            type="button" 
-            onClick={closeModal} 
-            className="p-2 w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-            aria-label="Close"
+      <div className="flex h-[88vh] w-full max-w-xl flex-col overflow-hidden rounded-[32px] border border-white/50 bg-[rgba(255,255,255,0.88)] shadow-[0_30px_80px_rgba(15,23,42,0.26)] backdrop-blur-xl">
+        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+          <div>
+            <p className="text-xs uppercase tracking-[0.22em] text-slate-400">Parking lot</p>
+            <h2 className="mt-1 text-xl font-semibold text-slate-950">Later queue</h2>
+          </div>
+          <button
+            type="button"
+            onClick={closeModal}
+            className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-100 text-slate-700 transition-colors hover:bg-slate-200"
+            aria-label="Close Later tasks"
           >
-            <X size={20} />
+            <X size={18} />
           </button>
         </div>
-        
-        <div className="flex-1 overflow-y-auto w-full p-4">
+
+        <div className="flex-1 overflow-y-auto px-5 py-4">
           <ParkingLotPanel />
         </div>
       </div>

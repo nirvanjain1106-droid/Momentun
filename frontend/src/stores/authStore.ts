@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { client } from '../api/client';
+import { client, setAccessToken } from '../api/client';
 import { analytics } from '../lib/analytics';
 
 export interface AuthState {
@@ -44,14 +44,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           analytics.identify(parsed.userId, { name: parsed.userName });
           
           client.post('/auth/refresh')
+            .then((res) => {
+              // Store the new access token in memory so all subsequent
+              // API calls include the Authorization header.
+              setAccessToken(res.data.access_token);
+            })
             .catch(() => {
-              // Refresh failed (e.g. expired refresh token), clear local state
+              // Refresh token expired — clear state and force re-login
               get().logout();
             })
             .finally(() => {
               get().completeBootRefresh();
             });
-          
           return;
         }
       }

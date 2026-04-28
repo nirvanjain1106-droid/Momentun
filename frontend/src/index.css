@@ -2,44 +2,43 @@
 @import './styles/variables.css';
 
 @theme {
-  --color-bg-base: #0a0a0f;
-  --color-bg-surface: #12121a;
-  --color-bg-elevated: #1a1a2e;
-  --color-bg-hover: #22223a;
-  --color-border-subtle: #2a2a3e;
-  --color-border-active: #6c5ce7;
-  
-  --color-primary-500: #6c5ce7;
-  --color-primary-400: #a29bfe;
-  --color-primary-300: #d1cdfe;
-  --color-primary-glow: rgba(108, 92, 231, 0.15);
-  
-  --color-accent-500: #00cec9;
-  --color-accent-400: #55efc4;
-  --color-accent-glow: rgba(0, 206, 201, 0.15);
-  
-  --color-success: #00b894;
-  --color-warning: #fdcb6e;
-  --color-danger: #ff6b6b;
-  --color-info: #74b9ff;
-  
-  --color-text-primary: #e8e8f0;
-  --color-text-secondary: #8888a0;
-  --color-text-muted: #55556a;
-  
-  --color-rank-1: #6c5ce7;
-  --color-rank-2: #00cec9;
-  --color-rank-3: #fdcb6e;
-  
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 16px;
-  
+  --color-bg-base: #08101d;
+  --color-bg-surface: #0d1728;
+  --color-bg-elevated: #142033;
+  --color-bg-hover: #1c2a40;
+  --color-border-subtle: rgba(148, 163, 184, 0.18);
+  --color-border-active: #a78bfa;
+
+  --color-primary-500: #a78bfa;
+  --color-primary-400: #c4b5fd;
+  --color-primary-300: #ddd6fe;
+  --color-primary-glow: rgba(167, 139, 250, 0.18);
+
+  --color-accent-500: #5eead4;
+  --color-accent-400: #7dd3fc;
+  --color-accent-glow: rgba(94, 234, 212, 0.16);
+
+  --color-success: #34d399;
+  --color-warning: #fbbf24;
+  --color-danger: #fb7185;
+  --color-info: #60a5fa;
+
+  --color-text-primary: #f8fafc;
+  --color-text-secondary: rgba(226, 232, 240, 0.72);
+  --color-text-muted: rgba(148, 163, 184, 0.86);
+
+  --color-rank-1: #a78bfa;
+  --color-rank-2: #7dd3fc;
+  --color-rank-3: #fdba74;
+
+  --radius-sm: 10px;
+  --radius-md: 18px;
+  --radius-lg: 28px;
+
   --font-sans: 'Inter', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
 }
 
-/* Utility classes or global resets that don't belong in CSS Modules */
 #root {
   min-height: 100vh;
   min-height: 100dvh;
@@ -55,17 +54,48 @@
 }
 
 .surface-card {
-  background-color: var(--bg-surface);
+  border-radius: 28px;
   border: 1px solid var(--border-color);
-  border-radius: var(--border-radius-lg);
+  background: rgba(11, 18, 32, 0.72);
   box-shadow: var(--shadow-md);
+  backdrop-filter: blur(24px);
 }
 
-/* Hide scrollbar utility */
+.glass-panel {
+  background: rgba(11, 18, 32, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: var(--shadow-glass);
+  backdrop-filter: blur(24px);
+}
+
+.light-surface {
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 22px 50px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(22px);
+}
+
+.page-shell-dark {
+  background:
+    radial-gradient(circle at top left, rgba(94, 234, 212, 0.16), transparent 28%),
+    radial-gradient(circle at bottom right, rgba(167, 139, 250, 0.18), transparent 32%),
+    linear-gradient(180deg, rgba(8, 16, 29, 0.96), rgba(10, 22, 40, 0.94));
+  box-shadow: 0 30px 90px rgba(15, 23, 42, 0.24);
+}
+
+.page-shell-light {
+  background:
+    radial-gradient(circle at top left, rgba(196, 181, 253, 0.18), transparent 24%),
+    radial-gradient(circle at top right, rgba(186, 230, 253, 0.18), transparent 26%),
+    linear-gradient(180deg, rgba(248, 250, 252, 0.98), rgba(241, 245, 249, 0.92));
+  box-shadow: 0 30px 90px rgba(15, 23, 42, 0.08);
+}
+
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
+
 .no-scrollbar {
-  -ms-overflow-style: none;  /* IE and Edge */
-  scrollbar-width: none;  /* Firefox */
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }

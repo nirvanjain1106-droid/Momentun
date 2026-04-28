@@ -86,6 +86,7 @@ async def register_user(data: RegisterRequest, db: AsyncSession) -> tuple[TokenR
     response = TokenResponse(
         access_token=access_token,
         user_id=user.id,
+        name=user.name,
         onboarding_complete=user.onboarding_complete,
         onboarding_step=user.onboarding_step,
     )
@@ -130,6 +131,7 @@ async def login_user(data: LoginRequest, db: AsyncSession) -> tuple[TokenRespons
     response = TokenResponse(
         access_token=access_token,
         user_id=user.id,
+        name=user.name,
         onboarding_complete=user.onboarding_complete,
         onboarding_step=user.onboarding_step,
     )

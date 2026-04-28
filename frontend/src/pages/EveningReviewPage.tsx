@@ -54,13 +54,13 @@ export default function EveningReviewPage() {
   const handleSubmit = async () => {
     setSubmitting(true);
     try {
-      await client.post('/api/v1/checkin/evening', {
+      await client.post('/checkin/evening', {
         task_completions: Object.values(reviews),
         mood_score: mood,
         evening_note: note
       });
       useUIStore.getState().addToast({ type: 'success', message: 'Day review complete! Sleep well.' });
-      navigate('/dashboard');
+      navigate('/home');
     } catch {
       useUIStore.getState().addToast({ type: 'error', message: 'Failed to submit evening review' });
     } finally {

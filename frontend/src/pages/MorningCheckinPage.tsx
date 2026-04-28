@@ -20,8 +20,7 @@ export default function MorningCheckinPage() {
         yesterday_rating: yesterday,
         surprise_event: surprise
       });
-      // Skip the success card for now, just redirect to dashboard
-      navigate('/dashboard');
+      navigate('/home');
     } catch {
       useUIStore.getState().addToast({ type: 'error', message: 'Failed to submit check-in' });
     } finally {

@@ -1,5 +1,5 @@
-import { client } from './client';
 import { v4 as uuidv4 } from 'uuid';
+import { client } from './client';
 
 export interface TaskDetail {
   id: string;
@@ -48,15 +48,47 @@ export interface ScheduleResponse {
   id: string;
   user_id: string;
   schedule_date: string;
-  generation_status: string;
+  day_type: string;
+  day_type_reason: string | null;
+  strategy_note: string | null;
   tasks: TaskDetail[];
+  parked_tasks: TaskDetail[];
   unassigned_parked_tasks: TaskDetail[];
+  total_tasks: number;
+  total_study_mins: number;
+  day_capacity_hrs: number;
+  recovery_mode: boolean;
+  is_paused: boolean;
+  is_stale: boolean;
+  schedule_status: string;
+  solver_latency_ms: number | null;
+}
+
+export interface ParkedTasksResponse {
+  tasks: TaskDetail[];
+  total: number;
+  stale_count: number;
+}
+
+export interface QuickAddPayload {
+  title: string;
+  duration_mins: number;
+  goal_id?: string | null;
+}
+
+export interface AdHocTaskPayload extends QuickAddPayload {
+  energy_required: string;
+  priority?: number;
+  description?: string | null;
+  task_type?: string;
 }
 
 interface RequestConfig {
   signal?: AbortSignal;
   headers?: Record<string, string>;
 }
+
+type RawTask = Partial<TaskDetail> & Record<string, unknown>;
 
 const withIdempotency = (config: RequestConfig = {}) => ({
   ...config,
@@ -66,66 +98,181 @@ const withIdempotency = (config: RequestConfig = {}) => ({
   },
 });
 
+const getPriorityLabel = (priority: number) => {
+  if (priority === 1) return 'Core';
+  if (priority === 3) return 'Bonus';
+  return 'Normal';
+};
+
+const normalizeTask = (raw: RawTask): TaskDetail => ({
+  id: String(raw.id ?? crypto.randomUUID()),
+  title: String(raw.title ?? 'Untitled task'),
+  description: raw.description ? String(raw.description) : null,
+  task_type: String(raw.task_type ?? 'general'),
+  scheduled_start: raw.scheduled_start ? String(raw.scheduled_start) : null,
+  scheduled_end: raw.scheduled_end ? String(raw.scheduled_end) : null,
+  duration_mins: Number(raw.duration_mins ?? 0),
+  energy_required: String(raw.energy_required ?? 'medium'),
+  priority: Number(raw.priority ?? 2),
+  priority_label: String(raw.priority_label ?? getPriorityLabel(Number(raw.priority ?? 2))),
+  is_mvp_task: Boolean(raw.is_mvp_task),
+  sequence_order: Number(raw.sequence_order ?? 0),
+  task_status: String(raw.task_status ?? 'active'),
+  previous_status: raw.previous_status ? String(raw.previous_status) : null,
+  slot_reasons: Array.isArray(raw.slot_reasons)
+    ? raw.slot_reasons.map((item) => String(item))
+    : null,
+  goal_id: raw.goal_id ? String(raw.goal_id) : null,
+  goal_rank_snapshot:
+    raw.goal_rank_snapshot === null || raw.goal_rank_snapshot === undefined
+      ? null
+      : Number(raw.goal_rank_snapshot),
+});
+
+const normalizeSchedule = (raw: Record<string, unknown>): ScheduleResponse => {
+  const tasks = Array.isArray(raw.tasks) ? raw.tasks.map((task) => normalizeTask(task as RawTask)) : [];
+  const parkedSource = Array.isArray(raw.unassigned_parked_tasks)
+    ? raw.unassigned_parked_tasks
+    : Array.isArray(raw.parked_tasks)
+      ? raw.parked_tasks
+      : [];
+  const parkedTasks = parkedSource.map((task) => normalizeTask(task as RawTask));
+
+  return {
+    id: String(raw.id ?? ''),
+    user_id: String(raw.user_id ?? ''),
+    schedule_date: String(raw.schedule_date ?? ''),
+    day_type: String(raw.day_type ?? 'standard'),
+    day_type_reason: raw.day_type_reason ? String(raw.day_type_reason) : null,
+    strategy_note: raw.strategy_note ? String(raw.strategy_note) : null,
+    tasks,
+    parked_tasks: parkedTasks,
+    unassigned_parked_tasks: parkedTasks,
+    total_tasks: Number(raw.total_tasks ?? tasks.length),
+    total_study_mins: Number(raw.total_study_mins ?? tasks.reduce((sum, task) => sum + task.duration_mins, 0)),
+    day_capacity_hrs: Number(raw.day_capacity_hrs ?? 0),
+    recovery_mode: Boolean(raw.recovery_mode),
+    is_paused: Boolean(raw.is_paused),
+    is_stale: Boolean(raw.is_stale),
+    schedule_status: String(raw.schedule_status ?? 'ready'),
+    solver_latency_ms:
+      raw.solver_latency_ms === null || raw.solver_latency_ms === undefined
+        ? null
+        : Number(raw.solver_latency_ms),
+  };
+};
+
+const normalizeParkedTasks = (raw: Record<string, unknown>): ParkedTasksResponse => ({
+  tasks: Array.isArray(raw.tasks) ? raw.tasks.map((task) => normalizeTask(task as RawTask)) : [],
+  total: Number(raw.total ?? 0),
+  stale_count: Number(raw.stale_count ?? 0),
+});
+
+const isToday = (dateStr?: string) => {
+  if (!dateStr) return true;
+  return dateStr === new Date().toISOString().split('T')[0];
+};
+
 export const scheduleApi = {
   getTodaySchedule: async (dateStr?: string, signal?: AbortSignal): Promise<ScheduleResponse> => {
-    const params = dateStr ? { date: dateStr } : undefined;
-    const response = await client.get('/schedule/generate', { params, signal }); // or whatever endpoint is
-    return response.data;
+    if (!isToday(dateStr) && dateStr) {
+      const response = await client.post(
+        '/schedule/generate',
+        { target_date: dateStr, use_llm: false },
+        { signal },
+      );
+      return normalizeSchedule(response.data as Record<string, unknown>);
+    }
+
+    const response = await client.get('/schedule/today', { signal });
+    return normalizeSchedule(response.data as Record<string, unknown>);
+  },
+
+  getParkedTasks: async (stale = false, signal?: AbortSignal): Promise<ParkedTasksResponse> => {
+    const response = await client.get('/tasks/parked', { params: stale ? { stale: true } : undefined, signal });
+    return normalizeParkedTasks(response.data as Record<string, unknown>);
   },
 
   completeTask: async (
     taskId: string,
     data: { actual_duration_mins?: number; quality_rating?: number },
-    signal?: AbortSignal
+    signal?: AbortSignal,
   ): Promise<TaskMutationResponse> => {
     const response = await client.post(
       `/tasks/${taskId}/complete`,
       data,
-      withIdempotency({ signal })
+      withIdempotency({ signal }),
     );
-    return response.data;
+    return {
+      ...response.data,
+      task: normalizeTask(response.data.task as RawTask),
+    } as TaskMutationResponse;
   },
 
   parkTask: async (
     taskId: string,
     reason: string | null,
-    signal?: AbortSignal
+    signal?: AbortSignal,
   ): Promise<TaskMutationResponse> => {
     const response = await client.post(
       `/tasks/${taskId}/park`,
       { reason },
-      withIdempotency({ signal })
+      withIdempotency({ signal }),
     );
-    return response.data;
+    return {
+      ...response.data,
+      task: normalizeTask(response.data.task as RawTask),
+    } as TaskMutationResponse;
   },
 
   undoTask: async (
     taskId: string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
   ): Promise<TaskMutationResponse> => {
     const response = await client.post(
       `/tasks/${taskId}/undo`,
       {},
-      withIdempotency({ signal })
+      withIdempotency({ signal }),
     );
-    return response.data;
+    return {
+      ...response.data,
+      task: normalizeTask(response.data.task as RawTask),
+    } as TaskMutationResponse;
   },
-  
-  createAdHocTask: async (
-    data: { 
-      title: string; 
-      duration_mins: number; 
-      energy_required: string; 
-      priority?: number;
-      goal_id?: string | null;
-    },
-    signal?: AbortSignal
-  ): Promise<ScheduleResponse> => {
+
+  quickAddTask: async (
+    data: QuickAddPayload,
+    signal?: AbortSignal,
+  ): Promise<TaskDetail> => {
     const response = await client.post(
-      '/tasks/adhoc',
+      '/tasks/quick-add',
       data,
-      withIdempotency({ signal })
+      withIdempotency({ signal }),
     );
-    return response.data;
+    return normalizeTask(response.data as RawTask);
+  },
+
+  createAdHocTask: async (
+    data: AdHocTaskPayload,
+    signal?: AbortSignal,
+  ): Promise<TaskDetail> => {
+    const response = await client.post(
+      '/tasks/ad-hoc',
+      data,
+      withIdempotency({ signal }),
+    );
+    return normalizeTask(response.data as RawTask);
+  },
+
+  rescheduleTask: async (
+    data: { task_id: string; target_date: string },
+    signal?: AbortSignal,
+  ): Promise<TaskDetail> => {
+    const response = await client.post(
+      '/tasks/reschedule',
+      data,
+      withIdempotency({ signal }),
+    );
+    return normalizeTask(response.data as RawTask);
   },
 };

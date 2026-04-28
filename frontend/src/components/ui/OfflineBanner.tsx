@@ -22,7 +22,7 @@ export function OfflineBanner() {
   if (!isOffline) return null;
 
   return (
-    <div className="bg-warning text-white px-4 py-2 text-sm font-medium flex items-center justify-center gap-2 z-[100] transition-all">
+    <div className="bg-warning text-white px-4 py-2 text-sm font-medium flex items-center justify-center gap-2 transition-all fixed top-0 left-0 right-0 z-[200]">
       <WifiOff size={16} /> You are currently offline. Local changes will sync when reconnected.
     </div>
   );
