@@ -233,7 +233,9 @@ async def evening_review(
     log.tasks_completed = tasks_completed
     log.completion_rate = completion_rate
     log.mood_score = data.mood_score
-    log.evening_note = data.evening_note
+    # Sprint 6 V17: Encryption-aware write path (Part 1 §8)
+    from app.services.encryption_helpers import set_evening_note
+    set_evening_note(log, data.evening_note)
     log.evening_review_at = datetime.now(timezone.utc)
     log.actual_day_type = (
         await _get_todays_day_type(user.id, today, db)

@@ -85,6 +85,11 @@ class Goal(Base):
         back_populates="goal", cascade="all, delete-orphan"
     )
 
+    # Sprint 7: recurring rules relationship
+    recurring_rules: Mapped[List["RecurringTaskRule"]] = relationship(
+        back_populates="goal", cascade="all, delete-orphan"
+    )
+
     __table_args__ = (
         Index(
             "uq_goal_rank_per_user",
@@ -99,6 +104,54 @@ class Goal(Base):
     # CHECK constraint (bidirectional):
     #   active goals MUST have non-NULL priority_rank
     #   inactive goals MUST have NULL priority_rank
+
+
+class RecurringTaskRule(Base):
+    """Sprint 7: Recurring task rule.
+
+    Materialised daily by recurring_task_service.get_recurring_requirements().
+    - days_of_week: Python weekday() semantics (0=Mon..6=Sun) per I44.
+    - max_per_day: v1 hardcoded to 1 via service validation (§9c).
+    - scheduled_start: v2 placeholder, not used in solver v1.
+    """
+    __tablename__ = "recurring_task_rules"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    goal_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("goals.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    task_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    duration_mins: Mapped[int] = mapped_column(Integer, nullable=False)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    # I44: Python weekday() — 0=Mon..6=Sun. DB trigger enforces uniqueness (P2#6).
+    days_of_week: Mapped[list] = mapped_column(ARRAY(Integer), nullable=False)
+    # v2 placeholder — "HH:MM" or NULL. Not used in solver v1.
+    scheduled_start: Mapped[Optional[str]] = mapped_column(String(5), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # D55: daily intent cap. v1: enforced as 1 by service layer (§9c).
+    max_per_day: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    # Relationships
+    goal: Mapped["Goal"] = relationship(back_populates="recurring_rules")
 
 
 class FixedBlock(Base):
@@ -380,6 +433,16 @@ class Task(Base):
         JSONB, nullable=True, default=None,
     )
 
+    # Sprint 7: Recurring task provenance (I41/I43)
+    recurring_rule_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("recurring_task_rules.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    source_date: Mapped[Optional[date]] = mapped_column(
+        Date, nullable=True,
+    )
+
     deleted_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True, default=None
     )
@@ -392,6 +455,7 @@ class Task(Base):
     task_logs: Mapped[List["TaskLog"]] = relationship(
         back_populates="task", cascade="all, delete-orphan"
     )
+    recurring_rule: Mapped[Optional["RecurringTaskRule"]] = relationship()
 
 
 class DailyLog(Base):
@@ -450,6 +514,8 @@ class DailyLog(Base):
         nullable=True,
     )
     evening_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    evening_note_encrypted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    evening_note_ciphertext: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     actual_day_type: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
 
     # Timestamps
@@ -634,6 +700,58 @@ class Feedback(Base):
     screen_state: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     device_info: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     request_ids: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class Notification(Base):
+    """Sprint 7: User notification.
+
+    Supports task reminders, rescue missions, milestone alerts, etc.
+    - body_ciphertext uses Text (D58): Fernet base64 strings, not raw bytes.
+    - encryption_key_version for Fernet key rotation (P2#8).
+    """
+    __tablename__ = "notifications"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    goal_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("goals.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    reminder_task_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("tasks.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    type: Mapped[str] = mapped_column(String(30), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    # D58: body_ciphertext uses Text — Fernet.encrypt() returns URL-safe
+    # base64, always decoded to str before storage.
+    body_ciphertext: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # P2#8: Fernet key rotation — tracks which key encrypted this row.
+    encryption_key_version: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True, default=0,
+    )
+    fire_at_utc: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    delivered_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    dismissed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

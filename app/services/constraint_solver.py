@@ -65,6 +65,9 @@ class TaskRequirement:
     subject: Optional[str] = None
     task_id: Optional[str] = None
     goal_id: Optional[str] = None
+    # Sprint 7: Recurring task provenance
+    recurring_rule_id: Optional[str] = None
+    source_date: Optional[date] = None
 
 
 @dataclass
@@ -85,6 +88,9 @@ class ScheduledTask:
     goal_id: Optional[str] = None
     goal_rank_snapshot: Optional[int] = None
     task_id: Optional[str] = None
+    # Sprint 7: Recurring task provenance
+    recurring_rule_id: Optional[str] = None
+    source_date: Optional[date] = None
 
 
 @dataclass

@@ -417,7 +417,7 @@ Every V17 fix was validated against these anti-regression rules:
 | Smoke test verifies decrypt | ❌ False abort on empty/null | ✅ Only checks HTTP 200 + rejects `[encrypted]`. |
 | Metrics all wired | ⚠️ Ephemeral scripts | ✅ Structured JSON exit logs for log-based alerting. |
 | DL failure abort at 3 | ⚠️ Defeated by intermittent success | ✅ Counter resets at batch boundary, not per-row. |
-| `DLPoolUnavailable` alert | ⚠️ Log-based | ✅ PromQL: `increase(dead_letter_write_failures_total[1m]) >= 3` |
+| `DLPoolUnavailable` alert | ⚠️ Log-based | ✅ Structured log parsing for `dead_letter_write_failure_counted` events + exit log `total_dl_failures` field |
 
 ---
 

@@ -1,48 +1,66 @@
 """
 Field-level encryption for sensitive free-text health data.
 
-Encrypts only free-text fields (physical_limitation_note, focus_note).
+Encrypts only free-text fields (physical_limitation_note, focus_note, evening_note).
 Enum/boolean fields stay plain for queryability.
-Uses Fernet symmetric encryption (AES-128-CBC).
+Uses Fernet symmetric encryption (AES-128-CBC) with key versioning prefix.
 """
 
 import base64
 import hashlib
-from typing import Optional
-
+import re
+from typing import Optional, List
 from cryptography.fernet import Fernet
+from app.config import settings
+
+_VERSION_RE = re.compile(r"^v(\d+):(.+)$", re.DOTALL)
 
 
-def _get_encryption_key() -> bytes:
-    """
-    Derive a Fernet key from SECRET_KEY.
-    Fernet requires a 32-byte URL-safe base64 key.
-    """
-    from app.config import settings
-    raw = settings.SECRET_KEY.encode("utf-8")
-    # Derive a consistent 32-byte key via SHA-256
+def _get_key_for_version(version: int) -> bytes:
+    """D2: SHA-256 key derivation from raw passphrase."""
+    keys: List[str] = settings.ENCRYPTION_KEYS
+    if version < 0 or version >= len(keys):
+        raise ValueError(f"Invalid key version {version}, have {len(keys)} keys")
+    raw = keys[version].encode("utf-8")
     digest = hashlib.sha256(raw).digest()
     return base64.urlsafe_b64encode(digest)
 
 
-def encrypt_field(value: Optional[str]) -> Optional[str]:
-    """Encrypt a string field. Returns base64-encoded ciphertext or None."""
+def encrypt_field_versioned(
+    value: Optional[str], force_version: int = None
+) -> Optional[str]:
+    """
+    D1, D3: Fernet encryption with version prefix.
+    force_version: Override for re-encryption (D29). Defaults to ACTIVE_KEY_VERSION.
+    """
     if value is None or value == "":
         return value
-    key = _get_encryption_key()
-    f = Fernet(key)
-    return f.encrypt(value.encode("utf-8")).decode("utf-8")
+    version = force_version if force_version is not None else settings.ACTIVE_KEY_VERSION
+    key = _get_key_for_version(version)
+    token = Fernet(key).encrypt(value.encode("utf-8")).decode("utf-8")
+    return f"v{version}:{token}"
 
 
-def decrypt_field(value: Optional[str]) -> Optional[str]:
-    """Decrypt a previously encrypted field. Returns plaintext or None."""
+def _parse_version_prefix(value: str) -> tuple[int, str]:
+    """
+    I12: Regex-based parser. No slice limit.
+    Handles v0, v10, v999999 uniformly. No startswith collision.
+    """
+    m = _VERSION_RE.match(value)
+    if m:
+        return int(m.group(1)), m.group(2)
+    return 0, value  # Legacy: no prefix → version 0
+
+
+def decrypt_field_versioned(value: Optional[str]) -> Optional[str]:
+    """I3: Parse version prefix, select key, decrypt."""
     if value is None or value == "":
         return value
-    try:
-        key = _get_encryption_key()
-        f = Fernet(key)
-        return f.decrypt(value.encode("utf-8")).decode("utf-8")
-    except Exception:
-        # If decryption fails (e.g. data was stored before encryption was added),
-        # return the raw value rather than crashing
-        return value
+    version, token = _parse_version_prefix(value)
+    key = _get_key_for_version(version)
+    return Fernet(key).decrypt(token.encode("utf-8")).decode("utf-8")
+
+
+# Aliases — prevent accidental unversioned use
+encrypt_field = encrypt_field_versioned
+decrypt_field = decrypt_field_versioned

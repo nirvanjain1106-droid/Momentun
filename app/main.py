@@ -14,7 +14,8 @@ from app.database import get_db
 from app.core.logging import configure_logging
 from app.core.rate_limit import limiter
 from app.core.middleware import RequestIDMiddleware
-from app.routers import auth, onboarding, schedule, checkin, insights, goals, tasks, users, sse
+from app.routers import auth, onboarding, schedule, checkin, insights, goals, tasks, users, sse, health
+from app.routers.health import _cache_column_check
 from app.services.event_bus import event_bus
 
 configure_logging()
@@ -42,6 +43,7 @@ async def _sse_cleanup_loop():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await _cache_column_check()
     cleanup_task = asyncio.create_task(_sse_cleanup_loop())
     yield
     cleanup_task.cancel()
@@ -109,6 +111,7 @@ app.include_router(goals.router,      prefix="/api/v1")
 app.include_router(tasks.router,      prefix="/api/v1")
 app.include_router(users.router,      prefix="/api/v1")
 app.include_router(sse.router,        prefix="/api/v1")
+app.include_router(health.router)
 
 
 @app.get("/", include_in_schema=False)
@@ -119,23 +122,6 @@ async def root():
         "status":  "running",
         "docs":    "/docs",
     })
-
-
-@app.get("/health", include_in_schema=False)
-async def health_check():
-    """
-    Fix #18 — real health check that verifies DB connectivity.
-    Returns 503 if DB is unreachable instead of always returning healthy.
-    """
-    try:
-        async for db in get_db():
-            await db.execute(text("SELECT 1"))
-        return JSONResponse(content={"status": "healthy", "db": "connected"})
-    except Exception:
-        return JSONResponse(
-            status_code=503,
-            content={"status": "unhealthy", "db": "unreachable"},
-        )
 
 
 @app.exception_handler(Exception)

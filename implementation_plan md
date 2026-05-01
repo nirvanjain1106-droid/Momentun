@@ -1,0 +1,764 @@
+# Sprint 7 — Production-Ready Implementation Plan
+
+> All P0 blockers closed. P1/P2 hardening from final review applied.
+
+---
+
+## 1. Status After This Revision
+
+| Finding | Status |
+|---------|--------|
+| Recurring reservation uses wrong schema fields (`max_instances` vs `max_per_day`) | ✅ Fixed — §3 |
+| Naming drift `source_rule_id` vs `recurring_rule_id` | ✅ Fixed — §4 |
+| Milestone 30-day rolling window vs cumulative | ✅ Fixed — §5 |
+| Q1: Reservation counter concurrency | ✅ Resolved — Option A (index-only) — §6 |
+| `_parse_time` malformed string crash | ✅ Fixed — §7 |
+| Missing `ix_notification_reminder_task` index | ✅ Fixed — §8 |
+| `goal_id` NULL guard in rescue insert | ✅ Fixed — §9 |
+| Alembic CI/CD safety note | ✅ Fixed — §10 |
+| Solver deferral semantics | ✅ Defined — D57 |
+| Partial-index `constraint=` syntax | ✅ Already fixed (prior revision) |
+| Router auth imports | ✅ Already fixed (prior revision) |
+| SAVEPOINT isolation | ✅ Already fixed (prior revision) |
+| Batched retention cleanup | ✅ Already fixed (prior revision) |
+| Heatmap cache removed | ✅ Already fixed (prior revision) |
+| **P1: Weekday comment contradiction (0-6 vs ISO 1-7)** | ✅ Fixed — §3, I44 |
+| **P1: Milestone uses `created_at` instead of `source_date`** | ✅ Fixed — §5 |
+| **P1: SAVEPOINT catch inside `begin_nested` leaks state** | ✅ Fixed — §6 |
+| **P1: `max_per_day` hardcoded to 1 by unique index** | ✅ Documented — D55 addendum |
+| **P1: Orphaned recurring rule silently skipped** | ✅ Fixed — §11 |
+| **P2: Missing concurrent dedup test** | ✅ Added — T16 |
+| **P2: `scheduled_start` undocumented column** | ✅ Documented — §3 |
+| **P2: No fast-fail test gate before Slice 2** | ✅ Added — Slice 0.5 |
+| **P1: Session state pollution after SAVEPOINT rollback** | ✅ Fixed — §6 (`db.expunge`) |
+| **P1: Milestone COALESCE kills index usage** | ✅ Fixed — §5 (index-friendly OR) |
+| **P1: Rescue candidate eval still user-wide** | ✅ Fixed — §9b (per-goal Task query) |
+| **P2: `max_per_day > 1` accepted by API but blocked by index** | ✅ Fixed — §9c (service validation) |
+| **P2: `scheduled_start` no format CHECK** | ✅ Fixed — §3 |
+| **P2: `_parse_time` naive time undocumented** | ✅ Fixed — §7 docstring |
+| **P2: T16 test pattern unspecified** | ✅ Fixed — §15 |
+| **P1: `_parse_time()` callers must wire `tzinfo=user_tz`** | ✅ Fixed — §7b, I46 |
+| **P1: Missing UTC fire-time conversion test** | ✅ Fixed — T20 |
+| **P1: `db.expunge()` defensive comment + T16 identity_map assertion** | ✅ Fixed — §6, T16 |
+| **P2: `body_ciphertext` Text vs LargeBinary convention undocumented** | ✅ Fixed — §9d, D58 |
+| **P1: T16 requires independent `AsyncSessionLocal` + `READ COMMITTED`** | ✅ Fixed — T16, Checklist #37 |
+| **P1: T16 must assert `session.new` empty after loser rollback** | ✅ Fixed — T16 |
+| **P2: Milestone OR query SeqScan runbook note** | ✅ Fixed — §5 runbook note |
+| **P1: DST fall-back ambiguity in timezone conversion** | ✅ Fixed — §7b (fold=0), T21 |
+| **P1: `RESCUE_THRESHOLD` hardcoded in service logic** | ✅ Fixed — §9b, D59 (externalized to config) |
+| **P2: `days_of_week` no range/uniqueness validation** | ✅ Fixed — §3, I47, Checklist #40 |
+| **P2: `scheduled_start` regex allows `25:99`** | ✅ Fixed — §3 (tightened regex) |
+| **P2: No dedup metrics for recurring pre-check/index-block rates** | ✅ Fixed — Checklist #41 |
+| **P1: Rolling deployment backward-compat for new nullable columns** | ✅ Fixed — Checklist #39 |
+| **P2: T16 needs `expire_on_commit=False` for identity_map assertions** | ✅ Fixed — T16 |
+| **P2: Slice 0.5 should assert `READ COMMITTED` at connection init** | ✅ Fixed — Slice 0.5 |
+
+---
+
+## 2. Updated Invariants & Decisions
+
+### New/Revised Invariants
+
+| # | Invariant |
+|---|-----------|
+| I35 | Recurring rules → `TaskRequirement` before solver. No direct `Task` creation. |
+| I36 | Partial-index upserts use `index_elements` + `index_where`, never `constraint=`. |
+| I37 | `notifications.goal_id` required for rescue dedup on `(user_id, goal_id)`. |
+| I38 | `_parse_time()` handles `str`, `datetime`, `time`, `None` with `try/except`. |
+| I39 | All new routers import from `app.core.dependencies`. |
+| I40 | **Recurring schema uses daily-reset semantics:** `max_per_day` column. Counter columns removed (D54). |
+| I41 | **Column name is `recurring_rule_id` everywhere** — model, dataclass, persistence. No `source_rule_id`. |
+| I42 | **Milestone progress is cumulative from `goal.created_at`**, using index-friendly `OR(source_date >= start, source_date IS NULL AND created_at::date >= start)`. |
+| I43 | **Recurring dedup is index-only.** `uq_task_per_rule_per_date` + `ON CONFLICT DO NOTHING`. No counter reservation. |
+| I44 | **`days_of_week` uses Python `weekday()` semantics (0=Mon..6=Sun).** NOT ISO 8601 (1-7). Conversion required at API boundaries. |
+| I45 | **After SAVEPOINT rollback, `db.expunge(task)` is required** to prevent SQLAlchemy session pollution on subsequent flush. |
+| I46 | **`_parse_time()` callers MUST localize the naive time** to `user.timezone` via `ZoneInfo` before conversion to UTC. Direct `datetime.combine()` without `tzinfo` is a silent misfire bug. Use `fold=0` for DST-ambiguous times (prefer first occurrence). |
+| I47 | **`days_of_week` values MUST be validated at API boundaries:** range 0-6, unique, no duplicates. ISO 8601 (1-7) conversion happens in Pydantic validators at ingress/egress. |
+
+### New/Revised Decisions
+
+| # | Decision |
+|---|----------|
+| D51 | `TaskRequirement` + `ScheduledTask` carry `recurring_rule_id` + `source_date` as optional fields. |
+| D52 | Rescue rate-limit uses UTC midnight (v1 trade-off, documented). |
+| D53 | Alembic `has_table` guards removed. CI/CD uses `alembic upgrade head` only. Manual re-runs require `alembic stamp head`. |
+| D54 | **Q1 Resolution: Option A — index-only dedup.** Drop `today_count`/`today_count_date` counter from the recurring rule table. Rely solely on `uq_task_per_rule_per_date` unique index + `ON CONFLICT DO NOTHING` at persistence time. Simpler, race-free. |
+| D55 | **Migration 007 schema uses `max_per_day`** (daily intent cap, enforced by the unique index preventing >1 task per rule per date in v1). **v1 Addendum:** `max_per_day` is stored for product UI but functionally hardcoded to 1 by `uq_task_per_rule_per_date`. Supporting >1 requires dropping the unique index and reverting to atomic counter reservation (Option B). Accepted v1 trade-off. |
+| D56 | **`_parse_time` wraps `int()` in `try/except ValueError`** to handle malformed strings like `"ab:cd"`. |
+| D57 | **Solver deferral: deferred recurring tasks still consume the daily slot.** The unique index `(recurring_rule_id, source_date)` prevents re-creation regardless of scheduled vs deferred status. |
+| D58 | **`body_ciphertext` uses `Text` type** (not `LargeBinary`) because Fernet tokens are base64 strings. Documented divergence from Sprint 6 `LargeBinary` convention. |
+| D59 | **`RESCUE_THRESHOLD` externalized to `app.core.config.settings.rescue_threshold_pct`** (default: 30.0). Enables product tuning without redeployment. 12-factor compliant. |
+
+---
+
+## 3. Corrected Migration 007 — Recurring Task Rules
+
+> [!IMPORTANT]
+> Schema changed from lifetime `max_instances`/`instances_created` to daily `max_per_day`. Counter columns removed per D54 (index-only dedup).
+
+```sql
+CREATE TABLE recurring_task_rules (
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id          UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    goal_id          UUID NOT NULL REFERENCES goals(id) ON DELETE CASCADE,
+    title            VARCHAR(200) NOT NULL,
+    task_type        VARCHAR(30) NOT NULL,
+    duration_mins    INTEGER NOT NULL,
+    priority         INTEGER NOT NULL DEFAULT 3,
+    days_of_week     INTEGER[] NOT NULL,         -- I44: Python weekday() 0=Mon..6=Sun (NOT ISO 1-7)
+    scheduled_start  VARCHAR(5),                 -- "HH:MM" or NULL. v2 placeholder: unused in solver v1.
+    is_active        BOOLEAN NOT NULL DEFAULT TRUE,
+    max_per_day      INTEGER NOT NULL DEFAULT 1, -- D55: daily intent cap (v1: hardcoded to 1 by unique index)
+    created_at       TIMESTAMPTZ DEFAULT NOW(),
+    updated_at       TIMESTAMPTZ DEFAULT NOW(),
+
+    CONSTRAINT ck_recurring_task_type CHECK (
+        task_type IN ('study', 'practice', 'review', 'exercise', 'reading', 'other')
+    ),
+    CONSTRAINT ck_recurring_priority CHECK (priority BETWEEN 1 AND 5),
+    CONSTRAINT ck_scheduled_start_format CHECK (
+        scheduled_start IS NULL OR scheduled_start ~ '^([01]\d|2[0-3]):[0-5]\d$'
+    ),
+    -- I47: DB-level defense-in-depth for weekday range (primary enforcement is Pydantic)
+    CONSTRAINT ck_days_of_week_range CHECK (
+        days_of_week <@ ARRAY[0,1,2,3,4,5,6]
+    )
+);
+
+CREATE INDEX ix_recurring_task_rules_user_id ON recurring_task_rules (user_id);
+CREATE INDEX ix_recurring_task_rules_goal_id ON recurring_task_rules (goal_id);
+CREATE INDEX ix_recurring_task_rules_active
+  ON recurring_task_rules (user_id, is_active) WHERE is_active = TRUE;
+```
+
+### Migration 007b — Task Columns
+
+```sql
+-- I41: Column is recurring_rule_id, NOT source_rule_id
+ALTER TABLE tasks ADD COLUMN recurring_rule_id UUID REFERENCES recurring_task_rules(id) ON DELETE SET NULL;
+ALTER TABLE tasks ADD COLUMN source_date DATE;
+
+-- I43/D54: Index-only dedup. One task per rule per date.
+CREATE UNIQUE INDEX uq_task_per_rule_per_date
+  ON tasks (recurring_rule_id, source_date)
+  WHERE recurring_rule_id IS NOT NULL AND deleted_at IS NULL;
+
+CREATE INDEX ix_tasks_recurring_rule_id ON tasks (recurring_rule_id)
+  WHERE recurring_rule_id IS NOT NULL;
+```
+
+### Migration 006 Patch — Notifications
+
+```sql
+-- I37: goal_id for rescue dedup
+ALTER TABLE notifications ADD COLUMN goal_id UUID REFERENCES goals(id) ON DELETE CASCADE;
+CREATE INDEX ix_notifications_goal_id ON notifications (goal_id) WHERE goal_id IS NOT NULL;
+
+-- P1: Covering index for reminder_task_id joins
+CREATE INDEX ix_notification_reminder_task ON notifications (reminder_task_id)
+  WHERE reminder_task_id IS NOT NULL;
+
+-- Rescue dedup on (user_id, goal_id)
+CREATE UNIQUE INDEX uq_notification_rescue_pending
+  ON notifications (user_id, goal_id)
+  WHERE type = 'rescue_mission' AND dismissed_at IS NULL AND delivered_at IS NULL;
+```
+
+---
+
+## 4. Naming Standardization — `recurring_rule_id`
+
+> [!IMPORTANT]
+> All references use `recurring_rule_id`. The old `source_rule_id` name is eliminated.
+
+**Task model** (in `app/models/goal.py`, added to `Task` class):
+```python
+recurring_rule_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    UUID(as_uuid=True),
+    ForeignKey("recurring_task_rules.id", ondelete="SET NULL"),
+    nullable=True,
+)
+source_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+```
+
+**TaskRequirement** (in `constraint_solver.py`):
+```python
+@dataclass
+class TaskRequirement:
+    title: str
+    task_type: str
+    duration_mins: int
+    energy_required: str
+    priority: int
+    subject: Optional[str] = None
+    task_id: Optional[str] = None
+    goal_id: Optional[str] = None
+    # D51: Recurring metadata — I41: name is recurring_rule_id
+    recurring_rule_id: Optional[str] = None
+    source_date: Optional[date] = None
+```
+
+**ScheduledTask** (in `constraint_solver.py`):
+```python
+@dataclass
+class ScheduledTask:
+    # ... existing fields ...
+    goal_id: Optional[str] = None
+    goal_rank_snapshot: Optional[int] = None
+    task_id: Optional[str] = None
+    # D51: Recurring metadata carried through solver
+    recurring_rule_id: Optional[str] = None
+    source_date: Optional[date] = None
+```
+
+**Persistence** (in `_save_schedule`, lines ~926-943):
+```python
+# Scheduled tasks — carry recurring metadata
+task = Task(
+    ...
+    goal_rank_snapshot=solver_task.goal_rank_snapshot,
+    # I41: recurring_rule_id, NOT source_rule_id
+    recurring_rule_id=uuid.UUID(solver_task.recurring_rule_id) if solver_task.recurring_rule_id else None,
+    source_date=solver_task.source_date,
+)
+
+# Unscheduled/deferred tasks — ALSO carry recurring metadata + goal_id
+task = Task(
+    ...
+    goal_id=uuid.UUID(unscheduled_task.goal_id) if unscheduled_task.goal_id else None,
+    recurring_rule_id=uuid.UUID(unscheduled_task.recurring_rule_id) if unscheduled_task.recurring_rule_id else None,
+    source_date=unscheduled_task.source_date,
+    task_status="deferred",
+)
+```
+
+---
+
+## 5. Corrected Milestone Progress — Cumulative Goal Lifetime
+
+> [!IMPORTANT]
+> Removed 30-day rolling window. Progress is cumulative from `goal.created_at`.
+> Uses index-friendly `OR(source_date >= start, source_date IS NULL AND created_at::date >= start)` instead of `COALESCE` to preserve B-tree index usage.
+
+```python
+async def _compute_current_value(user_id, goal_id, db) -> float:
+    """I42: Cumulative goal-scoped completion rate from goal creation.
+    
+    Uses index-friendly OR logic instead of COALESCE to allow PG to use
+    B-tree indexes on source_date and created_at. source_date is guaranteed
+    for recurring tasks; nullable for manual tasks where we fall back to
+    created_at::date (v1 limitation).
+    
+    RUNBOOK: If `EXPLAIN ANALYZE` shows SeqScan on `tasks` for this query
+    (likely when source_date is heavily NULL-skewed or PG statistics are stale):
+      1. First: `ANALYZE tasks;` to refresh planner statistics.
+      2. If SeqScan persists: add functional index:
+         `CREATE INDEX ix_tasks_created_at_date ON tasks ((created_at::date))
+          WHERE deleted_at IS NULL;`
+      3. Monitor via: `SELECT relname, seq_scan, idx_scan FROM pg_stat_user_tables
+         WHERE relname = 'tasks';`
+    """
+    import sqlalchemy as sa
+    from sqlalchemy import func, and_, cast, Date as SADate
+
+    goal_result = await db.execute(
+        select(Goal.created_at).where(Goal.id == goal_id)
+    )
+    goal_created = goal_result.scalar()
+    if not goal_created:
+        return 0.0
+
+    start_date = goal_created.date() if hasattr(goal_created, 'date') else goal_created
+
+    # I42: Index-friendly date filter — allows PG to use ix_tasks_goal_id
+    date_filter = sa.or_(
+        Task.source_date >= start_date,
+        sa.and_(Task.source_date.is_(None), cast(Task.created_at, SADate) >= start_date),
+    )
+
+    total_result = await db.execute(
+        select(func.count(Task.id)).where(
+            and_(
+                Task.user_id == user_id,
+                Task.goal_id == goal_id,
+                Task.deleted_at.is_(None),
+                date_filter,
+            )
+        )
+    )
+    total = total_result.scalar() or 0
+    if total == 0:
+        return 0.0
+
+    completed_result = await db.execute(
+        select(func.count(Task.id)).where(
+            and_(
+                Task.user_id == user_id,
+                Task.goal_id == goal_id,
+                Task.deleted_at.is_(None),
+                Task.task_status == 'completed',
+                date_filter,
+            )
+        )
+    )
+    completed = completed_result.scalar() or 0
+    return round(completed / total * 100, 2)
+```
+
+---
+
+## 6. Q1 Resolution — Option A: Index-Only Dedup
+
+> [!IMPORTANT]
+> Counter columns (`today_count`, `today_count_date`, `instances_created`) are **removed entirely**. The unique index `uq_task_per_rule_per_date` is the single source of truth.
+
+```python
+async def get_recurring_requirements(
+    user_id: uuid.UUID, target_date: date, db: AsyncSession
+) -> list[TaskRequirement]:
+    """
+    I35/I43: Convert active recurring rules to TaskRequirements.
+    No counter reservation — dedup is index-only at persistence time (D54).
+    """
+    iso_weekday = target_date.weekday()
+    rules = await _get_active_rules(user_id, iso_weekday, db)
+
+    requirements = []
+    for rule in rules:
+        # I43: Check if already instantiated via DB query (idempotency)
+        existing = await db.execute(
+            select(Task.id).where(
+                and_(
+                    Task.recurring_rule_id == rule.id,
+                    Task.source_date == target_date,
+                    Task.deleted_at.is_(None),
+                )
+            ).limit(1)
+        )
+        if existing.scalar_one_or_none():
+            continue
+
+        requirements.append(TaskRequirement(
+            title=rule.title,
+            task_type=rule.task_type,
+            duration_mins=rule.duration_mins,
+            energy_required="medium",
+            priority=rule.priority,
+            goal_id=str(rule.goal_id),
+            recurring_rule_id=str(rule.id),  # I41: correct name
+            source_date=target_date,
+        ))
+
+    return requirements
+```
+
+**Persistence safety** (in `_save_schedule`, wrap recurring task inserts):
+```python
+# D54/D57: Index-only dedup for recurring tasks
+# P1 FIX: IntegrityError caught OUTSIDE begin_nested() so the context
+# manager cleanly rolls back the SAVEPOINT before we suppress the error.
+if solver_task.recurring_rule_id:
+    try:
+        async with db.begin_nested():  # SAVEPOINT
+            db.add(task)
+            await db.flush()
+    except IntegrityError:
+        # Savepoint already rolled back by context manager exit.
+        # I45: CRITICAL — In SQLAlchemy 2.0 async sessions, after a SAVEPOINT
+        # rollback the `task` object remains in the session's identity_map in an
+        # invalid/expired state. If NOT expunged, the next db.flush() will attempt
+        # to re-INSERT this ghost object, causing a secondary IntegrityError or
+        # InvalidRequestError that is extremely difficult to diagnose.
+        # The expunge() call detaches `task` from the session entirely, making it
+        # safe to proceed with subsequent database operations in the same session.
+        db.expunge(task)
+        logger.info(
+            "recurring_task_duplicate_blocked",
+            extra={"rule_id": solver_task.recurring_rule_id, "date": str(solver_task.source_date)},
+        )
+else:
+    db.add(task)
+```
+
+---
+
+## 7. Hardened `_parse_time()` — P1 Fix
+
+```python
+from datetime import time as time_type, datetime
+
+def _parse_time(value) -> time_type:
+    """I38/D56: Type-safe time parsing with malformed string protection.
+    
+    Returns a naive time object. Callers MUST explicitly localize before
+    combining with a date via datetime.combine() + timezone arithmetic.
+    """
+    if value is None:
+        raise ValueError("Cannot parse None as time")
+    if isinstance(value, time_type):
+        return value
+    if isinstance(value, datetime):
+        return value.time()
+    if isinstance(value, str):
+        parts = value.split(":")[:2]
+        if len(parts) != 2:
+            raise ValueError(f"Invalid time format: {value}")
+        try:
+            h, m = int(parts[0]), int(parts[1])
+        except ValueError:
+            raise ValueError(f"Invalid time component in {value}")
+        if not (0 <= h <= 23 and 0 <= m <= 59):
+            raise ValueError(f"Time out of range: {value}")
+        return time_type(h, m)
+    raise TypeError(f"Unsupported time type: {type(value)}")
+```
+
+---
+
+## 7b. Caller-Side Timezone Wiring — `_parse_time()` (P1 Fix)
+
+> [!IMPORTANT]
+> I46: `_parse_time()` returns a naive `time`. Callers MUST localize before UTC conversion.
+> Without this, reminders fire at the naive time interpreted as UTC — a **silent misfire**.
+
+```python
+# In reminder generation loop (notification_service.py or schedule_service.py):
+from zoneinfo import ZoneInfo
+from datetime import datetime, timezone
+
+naive_t = _parse_time(rule.scheduled_start)
+user_tz = ZoneInfo(user.timezone)  # e.g., "America/New_York"
+
+# DST-SAFE: Use fold=0 to prefer the first occurrence of ambiguous times
+# during DST fall-back (e.g., 2024-11-03 01:30 America/New_York occurs twice).
+# fold=0 selects the EDT interpretation (before clocks change).
+# fold=1 would select EST. Product decision: prefer earlier firing.
+local_dt = datetime.combine(target_date, naive_t, tzinfo=user_tz)
+local_dt = local_dt.replace(fold=0)  # Explicit: first occurrence
+fire_at_utc = local_dt.astimezone(timezone.utc)
+
+# fire_at_utc is now the correct UTC instant for scheduling.
+# Example: scheduled_start="09:00", user_tz="America/New_York" (UTC-4)
+#   → local_dt = 2026-04-29 09:00 EDT
+#   → fire_at_utc = 2026-04-29 13:00 UTC  ✅
+#
+# DST edge case: scheduled_start="01:30", date=2024-11-03 (fall-back)
+#   → fold=0: 01:30 EDT (UTC-4) → fire_at_utc = 05:30 UTC
+#   → fold=1: 01:30 EST (UTC-5) → fire_at_utc = 06:30 UTC
+#   → We choose fold=0 (fire earlier, not later)
+```
+
+---
+
+## 8. Missing FK Index — `reminder_task_id`
+
+Added to Migration 006 patch (see §3 above):
+```sql
+CREATE INDEX ix_notification_reminder_task ON notifications (reminder_task_id)
+  WHERE reminder_task_id IS NOT NULL;
+```
+
+---
+
+## 9. Goal ID NULL Guard — Rescue Insert
+
+```python
+# Before rescue notification insert:
+if not goal or not goal.id:
+    raise ValueError("Rescue requires valid goal_id")
+
+stmt = pg_insert(Notification).values(
+    user_id=user_id,
+    goal_id=goal.id,  # I37: guaranteed non-None
+    type='rescue_mission',
+    ...
+).on_conflict_do_nothing(
+    index_elements=['user_id', 'goal_id'],
+    index_where=text(
+        "type = 'rescue_mission' "
+        "AND dismissed_at IS NULL "
+        "AND delivered_at IS NULL"
+    ),
+)
+```
+
+---
+
+## 9b. Per-Goal Rescue Candidate Evaluation (P1 Fix)
+
+> [!IMPORTANT]
+> Replaces user-wide `DailyLog` aggregation with goal-scoped `Task` completion query.
+
+```python
+async def _evaluate_rescue_candidate(goal: Goal, user_id: uuid.UUID, db: AsyncSession) -> bool:
+    """Evaluate if a goal qualifies for rescue based on per-goal task completion rate.
+    
+    Returns True if the goal's completion rate is below the rescue threshold.
+    """
+    from sqlalchemy import func, and_
+
+    total_result = await db.execute(
+        select(func.count(Task.id)).where(
+            and_(
+                Task.goal_id == goal.id,
+                Task.user_id == user_id,
+                Task.deleted_at.is_(None),
+            )
+        )
+    )
+    total = total_result.scalar() or 0
+    if total == 0:
+        return False  # No tasks = no rescue needed
+
+    completed_result = await db.execute(
+        select(func.count(Task.id)).where(
+            and_(
+                Task.goal_id == goal.id,
+                Task.user_id == user_id,
+                Task.task_status == 'completed',
+                Task.deleted_at.is_(None),
+            )
+        )
+    )
+    completed = completed_result.scalar() or 0
+    avg_rate = completed / max(total, 1) * 100
+
+    # D59: Externalized to config — enables product tuning without redeploy
+    from app.core.config import settings
+    return avg_rate < settings.rescue_threshold_pct  # Default: 30.0
+```
+
+**Config entry** (in `app/core/config.py`):
+```python
+class Settings(BaseSettings):
+    # ... existing settings ...
+    rescue_threshold_pct: float = 30.0  # D59: Below this → rescue candidate
+```
+
+---
+
+## 9c. Service-Level `max_per_day` Validation (P2 Fix)
+
+> [!WARNING]
+> Until v2 drops the unique index, reject `max_per_day > 1` at the API layer.
+
+```python
+# In create_recurring_rule / update_recurring_rule service:
+if data.get("max_per_day", 1) > 1:
+    raise HTTPException(
+        status_code=422,
+        detail="max_per_day > 1 not supported in v1 (unique index constraint). See D55.",
+    )
+```
+
+---
+
+## 9d. `body_ciphertext` Type Convention Documentation (P2 Fix)
+
+> [!NOTE]
+> D58: `body_ciphertext` uses `Text` (not `LargeBinary`) because Fernet tokens are base64 strings.
+> This diverges from Sprint 6's `LargeBinary` convention for encrypted fields.
+
+Add inline comment to the Notification model:
+```python
+# D58: body_ciphertext uses Text (not LargeBinary) because Fernet tokens
+# are base64 strings. This diverges from Sprint 6 convention where encrypted
+# fields used LargeBinary. Justification: Fernet.encrypt() returns a
+# URL-safe base64-encoded bytes object that is always decoded to str before
+# storage. Using Text avoids unnecessary encode/decode round-trips.
+# If future encryption changes produce raw binary, migrate to LargeBinary.
+body_ciphertext: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+```
+
+---
+
+## 10. Alembic CI/CD Safety — D53
+
+> [!WARNING]
+> With `has_table` guards removed, Alembic version tracking is the sole idempotency mechanism.
+
+**CI/CD contract:**
+- `alembic upgrade head` is the **only** supported migration path
+- Manual re-runs on an already-migrated DB require `alembic stamp head` first
+- Pipeline retries must check `alembic current` before running upgrade
+- Downgrade path: `alembic downgrade <revision>` in disposable environments only
+
+---
+
+## 11. Solver Integration Point
+
+In `_generate_schedule_internal` (schedule_service.py, after building `goal_task_groups`):
+
+```python
+from app.services.recurring_task_service import get_recurring_requirements
+
+recurring_reqs = await get_recurring_requirements(user_id, target_date, db)
+
+# Merge into respective GoalTaskGroups
+for req in recurring_reqs:
+    matching_group = next(
+        (g for g in goal_task_groups if g.goal_id == req.goal_id), None
+    )
+    if matching_group:
+        matching_group.tasks.append(req)
+    else:
+        # P1 FIX: Log orphaned rules instead of silent skip
+        logger.warning(
+            "recurring_rule_orphaned",
+            extra={"rule_id": req.recurring_rule_id, "goal_id": req.goal_id},
+        )
+```
+
+---
+
+## 12. Router Registration Verification
+
+Add to checklist: verify `app/main.py` registers new routers under `/api/v1`:
+```python
+app.include_router(notification_router, prefix="/api/v1")
+app.include_router(recurring_router, prefix="/api/v1")
+app.include_router(milestone_router, prefix="/api/v1")
+```
+
+---
+
+## 13. Consolidated Implementation Checklist
+
+| # | Pri | Action | Status |
+|---|-----|--------|--------|
+| 1 | P0 | Migration 007: daily-reset schema (`max_per_day`, no counters) | ❌ |
+| 2 | P0 | Migration 007b: `recurring_rule_id` + `source_date` on tasks + dedup index | ❌ |
+| 3 | P0 | Migration 006 patch: `goal_id` + `ix_notification_reminder_task` + rescue index | ❌ |
+| 4 | P0 | Standardize naming to `recurring_rule_id` in TaskRequirement, ScheduledTask, Task model | ❌ |
+| 5 | P0 | Replace all `constraint=` upserts with `index_elements` + `index_where` | ❌ |
+| 6 | P0 | Implement `get_recurring_requirements()` → solver input (no direct Task creation) | ❌ |
+| 7 | P0 | Wire recurring reqs into `_generate_schedule_internal` goal_task_groups | ❌ |
+| 8 | P0 | Add SAVEPOINT + `ON CONFLICT DO NOTHING` for recurring task persistence | ❌ |
+| 9 | P0 | Fix `_save_schedule` to carry `recurring_rule_id` + `source_date` on both scheduled AND deferred tasks | ❌ |
+| 10 | P0 | Align all router imports → `app.core.dependencies` | ❌ |
+| 11 | P1 | Fix `_compute_current_value` → cumulative goal lifetime, not 30-day window | ❌ |
+| 12 | P1 | Add `goal_id` NULL guard before rescue insert | ❌ |
+| 13 | P1 | Implement hardened `_parse_time()` with `try/except` | ❌ |
+| 14 | P1 | Verify router registration under `/api/v1` prefix | ❌ |
+| 15 | P1 | Fix `days_of_week` comment + add I44 weekday semantics invariant | ❌ |
+| 16 | P1 | Switch milestone progress to index-friendly OR logic (no COALESCE in WHERE) | ❌ |
+| 17 | P1 | Move `IntegrityError` catch outside `begin_nested()` context manager | ❌ |
+| 18 | P1 | Document `max_per_day` v1 index constraint (hardcoded to 1) | ❌ |
+| 19 | P1 | Add orphaned rule warning in solver merge logic | ❌ |
+| 20 | P1 | Add `db.expunge(task)` after SAVEPOINT rollback (I45) | ❌ |
+| 21 | P1 | Implement per-goal rescue candidate evaluation (replace DailyLog aggregation) | ❌ |
+| 22 | P2 | Document Alembic CI/CD upgrade-only contract | ❌ |
+| 23 | P2 | Document UTC midnight rate-limit trade-off (D52) | ❌ |
+| 24 | P2 | Document solver deferral = consumes daily slot (D57) | ❌ |
+| 25 | P2 | Add `test_concurrent_schedule_gen_recurring_dedup` to test matrix | ❌ |
+| 26 | P2 | Document `scheduled_start` as v2 placeholder or remove | ❌ |
+| 27 | P2 | Add Slice 0.5 fast-fail test gate to vertical slices | ❌ |
+| 28 | P2 | Add service-level validation rejecting `max_per_day > 1` | ❌ |
+| 29 | P2 | Add `CHECK` constraint on `scheduled_start` format | ❌ |
+| 30 | P2 | Document naive `time` localization in `_parse_time` docstring | ❌ |
+| 31 | P2 | Specify `asyncio.gather` pattern for T16 concurrent test | ❌ |
+| 32 | P2 | Verify `GoalTaskGroup.tasks` is mutable list, not tuple | ❌ |
+| 33 | P1 | Wire `_parse_time()` return with `tzinfo=user_tz` in reminder generation loop (I46) | ❌ |
+| 34 | P1 | Add defensive comment above `db.expunge(task)` explaining SQLAlchemy 2.0 session identity_map behavior | ❌ |
+| 35 | P1 | Update T16 to assert expunged task NOT in `db.identity_map` after SAVEPOINT rollback | ❌ |
+| 36 | P2 | Document `body_ciphertext` Text vs LargeBinary convention divergence (D58) | ❌ |
+| 37 | P1 | T16 must use independent `AsyncSessionLocal()` instances with `READ COMMITTED` isolation | ❌ |
+| 38 | P2 | Add milestone query SeqScan runbook note to §5 docstring | ❌ |
+| 39 | P1 | Verify rolling deployment backward-compat: old app versions tolerate NULL `recurring_rule_id`, `source_date`, `goal_id` | ❌ |
+| 40 | P2 | Add Pydantic validators for `days_of_week`: range 0-6, unique, ISO↔Python conversion (I47) | ❌ |
+| 41 | P2 | Add Prometheus metrics: `recurring_dedup_precheck_hit`, `recurring_dedup_index_blocked` | ❌ |
+| 42 | P1 | DST-safe timezone handling: `fold=0` in `datetime.combine` + T21 test | ❌ |
+| 43 | P1 | Externalize `RESCUE_THRESHOLD` to `settings.rescue_threshold_pct` (D59) | ❌ |
+| 44 | P2 | Tighten `scheduled_start` DB regex to `^([01]\d|2[0-3]):[0-5]\d$` | ❌ |
+| 45 | P2 | Add `days_of_week <@ ARRAY[0..6]` DB CHECK constraint | ❌ |
+| 46 | P3 | Add `alembic check` or `sqlfluff` to CI pre-merge pipeline | ❌ |
+
+---
+
+## 14. Vertical-Slice Implementation Order
+
+```
+Slice 0 — Baseline Verification
+  └── alembic current → verify at f011b_dead_letters
+
+Slice 0.5 — Fast-Fail Test Gate (P2 FIX)
+  ├── pytest tests/ -k "test_router_prefix_api_v1 or test_parse_time"
+  ├── Assert DB connection uses READ COMMITTED isolation (test_db_session_isolation_level)
+  └── Must pass before proceeding to Slice 1.
+
+Slice 1 — Schema Foundation
+  ├── Migration 006 patch (goal_id, reminder_task_id index, rescue index)
+  ├── Migration 007 (recurring_task_rules with max_per_day, I44 weekday comment, tightened scheduled_start regex, days_of_week CHECK)
+  ├── Migration 007b (tasks.recurring_rule_id, tasks.source_date, dedup index)
+  ├── Extend TaskRequirement + ScheduledTask dataclasses
+  └── Verify backward-compat: new nullable columns tolerated by old app code (#39)
+
+Slice 2 — Notifications
+  ├── Fix all on_conflict → index_elements + index_where
+  ├── Fix router imports → CurrentUserComplete, DB
+  ├── Add _parse_time() helper
+  ├── Wire _parse_time() callers with tzinfo=user_tz + DST fold=0 (I46, §7b)
+  ├── Add T20: test_task_reminder_fire_at_utc_conversion
+  ├── Add T21: test_reminder_dst_fallback_ambiguous_time
+  ├── Verify router registration under /api/v1
+  └── Batched retention cleanup (already done ✅)
+
+Slice 3 — Recurring Rules → Solver
+  ├── Implement get_recurring_requirements()
+  ├── Wire into schedule_service goal_task_groups + orphan rule warning
+  ├── Add SAVEPOINT + ON CONFLICT DO NOTHING in _save_schedule (catch OUTSIDE begin_nested)
+  ├── Add db.expunge(task) in IntegrityError handler (I45) + defensive comment
+  ├── Carry recurring_rule_id + source_date on scheduled AND deferred tasks
+  ├── Run test_concurrent_schedule_gen_recurring_dedup (independent sessions + identity_map + session.new assertions)
+  └── Document body_ciphertext Text convention (D58, §9d)
+
+Slice 4 — Rescue Missions
+  ├── Add goal_id NULL guard
+  ├── Fix rescue insert → goal_id dedup
+  ├── Implement per-goal rescue candidate eval (replace DailyLog aggregation)
+  ├── Externalize RESCUE_THRESHOLD to config (D59)
+  ├── Add Pydantic validators for days_of_week (I47)
+  ├── Add max_per_day > 1 service-level validation
+  ├── Add dedup Prometheus metrics (precheck_hit, index_blocked)
+  └── Document UTC rate-limit trade-off
+
+Slice 5 — Milestones
+  ├── Fix _compute_current_value → index-friendly OR logic (no COALESCE)
+  ├── Backfill script with NOT EXISTS guard
+  ├── Test multi-goal milestone isolation
+  └── Run test_milestone_uses_source_date_not_created_at
+
+Slice 6 — Heatmap (no changes needed)
+  └── Covering index only (already specified ✅)
+```
+
+---
+
+## 15. Updated Test Targets
+
+| # | Test | Assertion |
+|---|------|-----------|
+| T1 | `test_rescue_dedup_by_goal_id` | Second rescue for same `(user_id, goal_id)` → `rowcount=0` |
+| T2 | `test_rescue_different_goals` | Same user, two goals → two rescue notifications |
+| T3 | `test_task_reminder_upsert_partial_index` | `index_elements` upsert succeeds |
+| T4 | `test_parse_time_valid_string` | `"14:30"` → `time(14, 30)` |
+| T5 | `test_parse_time_malformed` | `"ab:cd"` → `ValueError` |
+| T6 | `test_parse_time_out_of_range` | `"25:99"` → `ValueError` |
+| T7 | `test_parse_time_none` | `None` → `ValueError` |
+| T8 | `test_recurring_in_solver_input` | Due rule → `TaskRequirement` with `recurring_rule_id` |
+| T9 | `test_recurring_persisted_with_metadata` | Task row has `recurring_rule_id` + `source_date` |
+| T10 | `test_recurring_dedup_index_only` | Duplicate rule+date → `ON CONFLICT DO NOTHING`, no crash |
+| T11 | `test_recurring_deferred_blocks_refire` | Deferred recurring task prevents re-creation for same date |
+| T12 | `test_milestone_cumulative_progress` | Uses `goal.created_at` as window start, not 30-day |
+| T13 | `test_milestone_goal_scoped` | Multi-goal user: Goal A progress ≠ Goal B progress |
+| T14 | `test_router_prefix_api_v1` | New endpoints mounted under `/api/v1` |
+| T15 | `test_rescue_null_goal_id_raises` | `goal.id=None` → `ValueError` before insert |
+| T16 | `test_concurrent_schedule_gen_recurring_dedup` | **Session isolation:** Create two independent `AsyncSessionLocal(expire_on_commit=False)` instances (NOT shared session fixtures). Assert both use `READ COMMITTED`. `asyncio.gather(gen_schedule(session_a), gen_schedule(session_b))` → only 1 recurring task persisted. Verify `db.expunge()` called on loser. **Assert losing task NOT in `db.identity_map` after rollback. Assert `session.new` is empty after loser's `IntegrityError`.** |
+| T17 | `test_milestone_uses_source_date_not_created_at` | Backfilled task with old `source_date` counts in milestone; late `created_at` does not inflate progress |
+| T18 | `test_rescue_candidate_per_goal` | Goal A at 20% completion → rescue candidate. Goal B at 80% → not a candidate. Same user. |
+| T19 | `test_max_per_day_gt1_rejected` | `POST /recurring-rules` with `max_per_day=3` → HTTP 422 |
+| T20 | `test_task_reminder_fire_at_utc_conversion` | `scheduled_start="09:00"` + `user.timezone="America/New_York"` (UTC-4) → `fire_at_utc=13:00 UTC`. Assert `fire_at_utc ≠ 09:00 UTC` (naive misfire). |
+| T21 | `test_reminder_dst_fallback_ambiguous_time` | `scheduled_start="01:30"` + `date=2024-11-03` + `user.timezone="America/New_York"` → ambiguous time. Assert `fold=0` selects EDT (UTC-4) → `fire_at_utc=05:30 UTC`. Assert result ≠ `06:30 UTC` (EST interpretation). |
+| T22 | `test_db_session_isolation_level` | Assert `AsyncSessionLocal()` connection uses `READ COMMITTED` isolation level at init. |
+| T23 | `test_days_of_week_pydantic_validation` | `days_of_week=[0, 7, -1]` → Pydantic `ValidationError`. `days_of_week=[1, 1, 2]` → `ValidationError` (duplicates). `days_of_week=[0, 4, 6]` → passes. |
+| T24 | `test_rescue_threshold_from_config` | Override `settings.rescue_threshold_pct=50.0`. Goal at 40% completion → rescue candidate. At default 30.0 → same goal NOT a candidate. |

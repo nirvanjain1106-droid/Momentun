@@ -53,6 +53,15 @@ class Settings(BaseSettings):
     # Monitoring
     SENTRY_DSN: str = ""
 
+    # Encryption (Sprint 6 V17)
+    ENCRYPTION_ACTIVE: bool = False
+    ENCRYPTION_MIN_VERSION: int = 17
+    CODE_VERSION: int = 17
+    ENCRYPTION_KEYS: list[str] = ["default_key_needs_to_be_replaced_in_prod"]
+    ACTIVE_KEY_VERSION: int = 0
+    CRON_MAINTENANCE_MODE: bool = False
+    DL_ABORT_THRESHOLD: int = 50
+
 
 
     @model_validator(mode="after")
@@ -85,6 +94,23 @@ class Settings(BaseSettings):
                     f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
                 ),
             )
+            
+        # I21: Comprehensive key validation at startup
+        if not self.ENCRYPTION_KEYS:
+            raise ValueError("ENCRYPTION_KEYS must not be empty")
+        if self.ACTIVE_KEY_VERSION < 0:
+            raise ValueError(
+                f"ACTIVE_KEY_VERSION must be >= 0, got {self.ACTIVE_KEY_VERSION}"
+            )
+        if self.ACTIVE_KEY_VERSION >= len(self.ENCRYPTION_KEYS):
+            raise ValueError(
+                f"ACTIVE_KEY_VERSION={self.ACTIVE_KEY_VERSION} >= "
+                f"len(ENCRYPTION_KEYS)={len(self.ENCRYPTION_KEYS)}"
+            )
+        for i, k in enumerate(self.ENCRYPTION_KEYS):
+            if not k:
+                raise ValueError(f"ENCRYPTION_KEYS[{i}] is empty")
+                
         return self
 
     # Fix #15 — Pydantic v2 SettingsConfigDict (replaces inner Config class)

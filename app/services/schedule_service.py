@@ -1,5 +1,5 @@
 """
-Schedule Service — V8 (Advisory Lock Architecture)
+Schedule Service — V8 (Advisory Lock Architecture) + Sprint 7 Hardening
 
 Portfolio ownership: schedules are user-day scoped (no goal_id on Schedule).
 Tasks still belong to individual goals via task.goal_id.
@@ -10,6 +10,12 @@ Concurrency: PostgreSQL advisory locks keyed by (user_id, target_date).
 - Stale contract: is_stale flag triggers re-generation via advisory lock
 - Parked tasks: filtered by active goal IDs, not bare user_id
 - Background LLM enrichment with generation_version guard
+
+Sprint 7 additions:
+- Recurring task integration via get_recurring_requirements() (§6/§11)
+- SAVEPOINT dedup for recurring tasks with safe_expunge() (P0#1, P1#4)
+- Hardened _parse_time() with DST-safe fold=0 (§7, P1#5)
+- Prometheus instrumentation with low-cardinality labels (P2#7)
 """
 
 import asyncio
@@ -19,13 +25,15 @@ import hmac
 import logging
 import struct
 import time
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone, time as dt_time
 from typing import Optional, List
 import uuid
+from zoneinfo import ZoneInfo
 
 from app.config import settings
 
 from app.core.timezone import get_user_today
+from app.core.session_utils import safe_expunge
 
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -55,8 +63,37 @@ from app.services.llm_service import (
 )
 from app.services import insights_service
 from app.services import goal_service
+from app.services.recurring_task_service import get_recurring_requirements
+from app.metrics import recurring_dedup_total
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_time(value) -> dt_time:
+    """I38/D56: Type-safe time parsing with malformed string protection.
+    
+    Returns a naive time object. Callers MUST explicitly localize before
+    combining with a date via datetime.combine() + timezone arithmetic.
+    """
+    if value is None:
+        raise ValueError("Cannot parse None as time")
+    if isinstance(value, dt_time):
+        return value
+    if isinstance(value, datetime):
+        return value.time()
+    if isinstance(value, str):
+        parts = value.split(":")[:2]
+        if len(parts) != 2:
+            raise ValueError(f"Invalid time format: {value}")
+        try:
+            h, m = int(parts[0]), int(parts[1])
+        except ValueError:
+            raise ValueError(f"Invalid time component in {value}")
+        if not (0 <= h <= 23 and 0 <= m <= 59):
+            raise ValueError(f"Time out of range: {value}")
+        return dt_time(h, m)
+    raise TypeError(f"Unsupported time type: {type(value)}")
+
 
 def _pii_hash(value: str) -> str:
     return hmac.new(
@@ -309,6 +346,27 @@ async def _generate_schedule_internal(
             goal_title=goal.title,
             tasks=task_requirements,
         ))
+
+    # §6/§11: Merge recurring task requirements into goal groups.
+    # Uses bulk NOT EXISTS (P0#1) — single DB round-trip, not N+1.
+    recurring_reqs = await get_recurring_requirements(
+        user_id=user_id,
+        target_date=target_date,
+        db=db,
+    )
+    if recurring_reqs:
+        # Group recurring requirements by goal_id
+        goal_group_map = {g.goal_id: g for g in goal_task_groups}
+        for req in recurring_reqs:
+            group = goal_group_map.get(req.goal_id)
+            if group:
+                group.tasks.append(req)
+            else:
+                # Orphan rule — goal no longer active; skip gracefully
+                logger.warning(
+                    "Recurring rule %s targets inactive goal %s — skipping",
+                    req.recurring_rule_id, req.goal_id,
+                )
 
     fixed_blocks = await _get_fixed_blocks_for_date(user_id, target_date, db)
     _check_block_overlaps(fixed_blocks)
@@ -901,7 +959,13 @@ async def _save_schedule(
     db: AsyncSession,
     solver_latency_ms: Optional[int] = None,
 ) -> Schedule:
-    """Save schedule + scheduled tasks + parked tasks (portfolio-level, no goal_id)."""
+    """Save schedule + scheduled tasks + parked tasks (portfolio-level, no goal_id).
+
+    Sprint 7: Recurring tasks use SAVEPOINT-per-task dedup.
+    On IntegrityError (uq_task_per_rule_per_date), the SAVEPOINT rolls back
+    only that task, and safe_expunge() (P1#4) removes the failed object +
+    all its loaded relationships from the identity map.
+    """
     schedule = Schedule(
         user_id=user_id,
         schedule_date=target_date,
@@ -918,11 +982,19 @@ async def _save_schedule(
 
     task_descriptions = enrichment.get("task_descriptions", {})
 
-    # Save scheduled tasks (including goal_id and goal_rank_snapshot)
+    # Save scheduled tasks (including goal_id, goal_rank_snapshot, recurring provenance)
     for solver_task in solver_result.scheduled_tasks:
         description = task_descriptions.get(solver_task.title, solver_task.description)
         # Parse goal_id from solver's string UUID
         task_goal_id = uuid.UUID(solver_task.goal_id) if solver_task.goal_id else None
+        # Sprint 7: Recurring task provenance (§4)
+        rule_id = (
+            uuid.UUID(solver_task.recurring_rule_id)
+            if getattr(solver_task, 'recurring_rule_id', None)
+            else None
+        )
+        src_date = getattr(solver_task, 'source_date', None)
+
         task = Task(
             schedule_id=schedule.id,
             user_id=user_id,
@@ -940,17 +1012,48 @@ async def _save_schedule(
             task_status="active",
             slot_reasons=getattr(solver_task, 'slot_reasons', None),
             goal_rank_snapshot=solver_task.goal_rank_snapshot,
+            recurring_rule_id=rule_id,
+            source_date=src_date,
         )
-        db.add(task)
+
+        # §6 SAVEPOINT dedup: recurring tasks use per-task SAVEPOINT.
+        # If uq_task_per_rule_per_date fires, only this task's SAVEPOINT
+        # rolls back — not the entire schedule transaction.
+        if rule_id is not None:
+            try:
+                async with db.begin_nested():
+                    db.add(task)
+                    await db.flush()
+                recurring_dedup_total.labels(outcome="created").inc()
+            except IntegrityError:
+                # Race: another session inserted this rule+date first.
+                # P1#4: safe_expunge removes the task AND any eagerly-loaded
+                # relationships from the session identity map, preventing
+                # InvalidRequestError on subsequent flush() calls.
+                safe_expunge(db, task)
+                recurring_dedup_total.labels(outcome="index_blocked").inc()
+                logger.info(
+                    "Recurring dedup: rule %s date %s blocked by index",
+                    rule_id, src_date,
+                )
+        else:
+            db.add(task)
 
     # Save unscheduled tasks as "deferred" (Parking Lot)
+    # D57: Deferred tasks consume a daily solver slot — documented convention.
     for i, unscheduled_task in enumerate(solver_result.unscheduled_tasks):
-        # Unscheduled tasks don't have goal_id on TaskRequirement,
-        # so we won't set it here. They go to the general parking lot.
+        # §4: Carry recurring metadata on deferred tasks too
+        rule_id = (
+            uuid.UUID(unscheduled_task.recurring_rule_id)
+            if getattr(unscheduled_task, 'recurring_rule_id', None)
+            else None
+        )
+        src_date = getattr(unscheduled_task, 'source_date', None)
+
         task = Task(
-            schedule_id=None,   # not on any schedule ΓÇö in parking lot
+            schedule_id=None,   # not on any schedule — in parking lot
             user_id=user_id,
-            goal_id=None,
+            goal_id=uuid.UUID(unscheduled_task.goal_id) if getattr(unscheduled_task, 'goal_id', None) else None,
             title=unscheduled_task.title,
             description=None,
             task_type=unscheduled_task.task_type,
@@ -962,8 +1065,22 @@ async def _save_schedule(
             is_mvp_task=(unscheduled_task.priority == PRIORITY_CORE),
             sequence_order=999 + i,
             task_status="deferred",
+            recurring_rule_id=rule_id,
+            source_date=src_date,
         )
-        db.add(task)
+
+        # SAVEPOINT dedup for deferred recurring tasks too
+        if rule_id is not None:
+            try:
+                async with db.begin_nested():
+                    db.add(task)
+                    await db.flush()
+                recurring_dedup_total.labels(outcome="created").inc()
+            except IntegrityError:
+                safe_expunge(db, task)
+                recurring_dedup_total.labels(outcome="index_blocked").inc()
+        else:
+            db.add(task)
 
     await db.flush()
     return schedule
