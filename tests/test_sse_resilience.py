@@ -22,16 +22,19 @@ async def test_sse_eviction_chaos(setup_test_user):
     sub_tasks = []
     for _ in range(3):
         it = event_bus.subscribe(user_id)
-        # MUST advance the iterator to trigger registration
-        await it.__anext__()
         sub_tasks.append(asyncio.create_task(consumer(it)))
+    
+    # Let the generators run and register their queues
+    await asyncio.sleep(0.1)
     
     assert len(event_bus._subscribers[user_id]) == 3
     
     # 2. Open 4th connection (should trigger eviction of the first)
     it4 = event_bus.subscribe(user_id)
-    await it4.__anext__()
     sub_tasks.append(asyncio.create_task(consumer(it4)))
+    
+    # Let the 4th connection register and evict the 1st
+    await asyncio.sleep(0.1)
     
     # 3. Verify eviction
     assert len(event_bus._subscribers[user_id]) == 3
@@ -56,9 +59,14 @@ async def test_sse_broadcast_saturation(setup_test_user):
     user, token = setup_test_user
     user_id = str(user.id)
     
+    async def consumer(it):
+        async for _ in it:
+            pass
+
     # Subscribe and advance iterator to register queue
     it = event_bus.subscribe(user_id)
-    await it.__anext__()
+    consumer_task = asyncio.create_task(consumer(it))
+    await asyncio.sleep(0.1)
     
     # The queue is the last one added to self._subscribers[user_id]
     queue = event_bus._subscribers[user_id][-1]
@@ -69,6 +77,8 @@ async def test_sse_broadcast_saturation(setup_test_user):
     
     assert queue.qsize() >= 100
     print(f"\n[SSE CHAOS] Broadcast saturation handled ({queue.qsize()} msgs in queue).")
+    
+    consumer_task.cancel()
 
 
 @pytest.mark.asyncio

@@ -471,40 +471,68 @@ async def _mark_today_schedule_stale(
         logger.exception("stale_marking_failed", extra={"user_id": str(user_id)})
 
 
-async def _get_goal_progress(goal_id: uuid.UUID, db: AsyncSession) -> dict:
-    """Calculate goal progress from TaskLog data."""
-    # Total tasks ever created for this goal
-    total_result = await db.execute(
-        select(func.count(Task.id)).where(
-            and_(Task.goal_id == goal_id, Task.deleted_at.is_(None))
-        )
+async def _compute_current_value(user_id, goal_id, db) -> float:
+    """I42: Cumulative goal-scoped completion rate from goal creation date.
+
+    Uses index-friendly OR logic instead of COALESCE so PostgreSQL can use
+    B-tree indexes on source_date and created_at. source_date is guaranteed
+    for recurring tasks; falls back to created_at::date for manual tasks (v1).
+
+    RUNBOOK — if EXPLAIN ANALYZE shows SeqScan on `tasks`:
+      1. ANALYZE tasks;                      -- refresh planner statistics
+      2. If SeqScan persists, add:
+           CREATE INDEX ix_tasks_created_at_date ON tasks ((created_at::date))
+           WHERE deleted_at IS NULL;
+      3. Monitor: SELECT relname, seq_scan, idx_scan
+                  FROM pg_stat_user_tables WHERE relname = 'tasks';
+    """
+    import sqlalchemy as sa
+    from sqlalchemy import func, and_, cast, select
+    from sqlalchemy import Date as SADate
+    from app.models.goal import Goal, Task
+
+    goal_result = await db.execute(
+        select(Goal.created_at).where(Goal.id == goal_id)
     )
-    total = total_result.scalar() or 0
+    goal_created = goal_result.scalar()
+    if not goal_created:
+        return 0.0
 
-    # Completed tasks
-    completed_result = await db.execute(
-        select(func.count(Task.id)).where(
-            and_(
-                Task.goal_id == goal_id,
-                Task.task_status == "completed",
-                Task.deleted_at.is_(None),
-            )
-        )
+    start_date = goal_created.date() if hasattr(goal_created, "date") else goal_created
+
+    # I42: Index-friendly date filter (no COALESCE — see P1 fix)
+    date_filter = sa.or_(
+        Task.source_date >= start_date,
+        sa.and_(
+            Task.source_date.is_(None),
+            cast(Task.created_at, SADate) >= start_date,
+        ),
     )
-    completed = completed_result.scalar() or 0
 
-    progress_pct = round((completed / total * 100), 1) if total > 0 else 0.0
+    total = (await db.execute(
+        select(func.count(Task.id)).where(
+            and_(Task.user_id == user_id, Task.goal_id == goal_id,
+                 Task.deleted_at.is_(None), date_filter)
+        )
+    )).scalar() or 0
 
-    return {
-        "progress_pct": progress_pct,
-        "tasks_completed": completed,
-        "tasks_total": total,
-    }
+    if total == 0:
+        return 0.0
+
+    completed = (await db.execute(
+        select(func.count(Task.id)).where(
+            and_(Task.user_id == user_id, Task.goal_id == goal_id,
+                 Task.deleted_at.is_(None), Task.task_status == "completed",
+                 date_filter)
+        )
+    )).scalar() or 0
+
+    return round(completed / total * 100, 2)
 
 
 async def _build_goal_response(goal: Goal, db: AsyncSession) -> GoalDetailResponse:
     """Build GoalDetailResponse with progress data."""
-    progress = await _get_goal_progress(goal.id, db)
+    progress_pct = await _compute_current_value(goal.user_id, goal.id, db)
 
     days_remaining = (goal.target_date - date.today()).days
     if days_remaining < 0:
@@ -522,9 +550,7 @@ async def _build_goal_response(goal: Goal, db: AsyncSession) -> GoalDetailRespon
         success_metric=goal.success_metric,
         status=goal.status,
         metadata=goal.goal_metadata,
-        progress_pct=progress["progress_pct"],
-        tasks_completed=progress["tasks_completed"],
-        tasks_total=progress["tasks_total"],
+        progress_pct=progress_pct,
         days_remaining=days_remaining,
         priority_rank=goal.priority_rank,
         pre_pause_rank=goal.pre_pause_rank,

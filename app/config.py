@@ -62,7 +62,9 @@ class Settings(BaseSettings):
     CRON_MAINTENANCE_MODE: bool = False
     DL_ABORT_THRESHOLD: int = 50
 
-
+    # D59: Rescue mission threshold — goals below this completion % are candidates.
+    # Externalized for product tuning without redeployment (12-factor compliant).
+    rescue_threshold_pct: float = 30.0
 
     @model_validator(mode="after")
     def enforce_secret_key(self) -> "Settings":

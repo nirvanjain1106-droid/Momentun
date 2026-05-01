@@ -117,7 +117,8 @@ class RecurringTaskRule(Base):
     __tablename__ = "recurring_task_rules"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        UUID(as_uuid=True), primary_key=True,
+        server_default=text("gen_random_uuid()"),
     )
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -136,18 +137,18 @@ class RecurringTaskRule(Base):
     duration_mins: Mapped[int] = mapped_column(Integer, nullable=False)
     priority: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
     # I44: Python weekday() — 0=Mon..6=Sun. DB trigger enforces uniqueness (P2#6).
-    days_of_week: Mapped[list] = mapped_column(ARRAY(Integer), nullable=False)
+    days_of_week: Mapped[list[int]] = mapped_column(ARRAY(Integer), nullable=False)
     # v2 placeholder — "HH:MM" or NULL. Not used in solver v1.
     scheduled_start: Mapped[Optional[str]] = mapped_column(String(5), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     # D55: daily intent cap. v1: enforced as 1 by service layer (§9c).
     max_per_day: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+    created_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(),
     )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+    updated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(),
     )
 
     # Relationships
@@ -736,8 +737,10 @@ class Notification(Base):
 
     type: Mapped[str] = mapped_column(String(30), nullable=False)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
-    # D58: body_ciphertext uses Text — Fernet.encrypt() returns URL-safe
-    # base64, always decoded to str before storage.
+    # D58: body_ciphertext uses Text (NOT LargeBinary) because Fernet tokens are
+    # URL-safe base64 strings (always decoded to str before storage). This diverges
+    # from Sprint 6 convention where encrypted fields used LargeBinary. If future
+    # encryption produces raw binary, migrate to LargeBinary.
     body_ciphertext: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     # P2#8: Fernet key rotation — tracks which key encrypted this row.
     encryption_key_version: Mapped[Optional[int]] = mapped_column(

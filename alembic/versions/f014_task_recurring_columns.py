@@ -8,7 +8,7 @@ Migration 007b — Task Recurring Columns
 
 P0#2 Note: The partial index uq_task_per_rule_per_date uses
 `deleted_at IS NULL` predicate, which breaks HOT updates when
-deleted_at transitions NULL→NOW(). Monthly REINDEX CONCURRENTLY
+deleted_at transitions NULL->NOW(). Monthly REINDEX CONCURRENTLY
 is required (see app/core/maintenance.py).
 
 Revision ID: f014_task_recurring_columns
@@ -17,8 +17,6 @@ Create Date: 2026-04-30 10:02:00.000000
 """
 from typing import Sequence, Union
 
-import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import UUID
 from alembic import op
 
 
@@ -26,44 +24,41 @@ from alembic import op
 revision: str = 'f014_task_recurring_columns'
 down_revision: Union[str, None] = 'f013_recurring_task_rules'
 branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = ('f013_recurring_task_rules',)
 
+
+# I41: Column name is recurring_rule_id, NOT source_rule_id
 
 def upgrade() -> None:
-    # I41: Column is recurring_rule_id, NOT source_rule_id
-    op.add_column('tasks', sa.Column(
-        'recurring_rule_id', UUID(as_uuid=True),
-        sa.ForeignKey('recurring_task_rules.id', ondelete='SET NULL'),
-        nullable=True,
-    ))
-    op.add_column('tasks', sa.Column(
-        'source_date', sa.Date(), nullable=True,
-    ))
+    op.execute("""
+        ALTER TABLE tasks
+          ADD COLUMN IF NOT EXISTS recurring_rule_id UUID
+            REFERENCES recurring_task_rules(id) ON DELETE SET NULL
+    """)
 
-    # I43/D54: Index-only dedup. One task per rule per date.
+    op.execute("""
+        ALTER TABLE tasks
+          ADD COLUMN IF NOT EXISTS source_date DATE
+    """)
+
+    # I43/D54: One task per rule per date.
     # P0#2 WARNING: This partial index breaks HOT updates on deleted_at transitions.
     # Schedule monthly REINDEX CONCURRENTLY via cron (see app/core/maintenance.py).
-    op.create_index(
-        'uq_task_per_rule_per_date',
-        'tasks',
-        ['recurring_rule_id', 'source_date'],
-        unique=True,
-        postgresql_where=sa.text(
-            'recurring_rule_id IS NOT NULL AND deleted_at IS NULL'
-        ),
-    )
+    op.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_task_per_rule_per_date
+          ON tasks (recurring_rule_id, source_date)
+          WHERE recurring_rule_id IS NOT NULL AND deleted_at IS NULL
+    """)
 
-    # Covering index for FK joins on recurring_rule_id
-    op.create_index(
-        'ix_tasks_recurring_rule_id',
-        'tasks',
-        ['recurring_rule_id'],
-        postgresql_where=sa.text('recurring_rule_id IS NOT NULL'),
-    )
+    op.execute("""
+        CREATE INDEX IF NOT EXISTS ix_tasks_recurring_rule_id
+          ON tasks (recurring_rule_id)
+          WHERE recurring_rule_id IS NOT NULL
+    """)
 
 
 def downgrade() -> None:
-    op.drop_index('ix_tasks_recurring_rule_id', table_name='tasks')
-    op.drop_index('uq_task_per_rule_per_date', table_name='tasks')
-    op.drop_column('tasks', 'source_date')
-    op.drop_column('tasks', 'recurring_rule_id')
+    op.execute('DROP INDEX IF EXISTS ix_tasks_recurring_rule_id')
+    op.execute('DROP INDEX IF EXISTS uq_task_per_rule_per_date')
+    op.execute('ALTER TABLE tasks DROP COLUMN IF EXISTS source_date')
+    op.execute('ALTER TABLE tasks DROP COLUMN IF EXISTS recurring_rule_id')

@@ -1,116 +1,106 @@
-"""
-Recurring Task Service — Sprint 7
-
-Core logic for materializing recurring rules into TaskRequirements for the solver.
-
-P0#1 Fix: Uses bulk NOT EXISTS (single round-trip) instead of N+1 per-rule
-SELECT to prevent asyncpg pool exhaustion under concurrent load.
-
-§6 Spec: get_recurring_requirements() returns a list of TaskRequirements that
-the solver treats identically to ad-hoc task requirements.
-"""
-
-from __future__ import annotations
-
-import logging
 import uuid
 from datetime import date
-from typing import List
-
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import HTTPException
 
 from app.models.goal import RecurringTaskRule, Task
+from app.schemas.recurring_rule import RecurringRuleCreate, RecurringRuleUpdate, RecurringRuleOut
 from app.services.constraint_solver import TaskRequirement
-from app.metrics import recurring_dedup_total
 
-logger = logging.getLogger(__name__)
+
+def _validate_max_per_day(max_per_day: int) -> None:
+    """P2 fix — §9c: max_per_day > 1 is not supported in v1."""
+    if max_per_day > 1:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "max_per_day > 1 is not supported in v1. "
+                "The unique index uq_task_per_rule_per_date enforces one "
+                "task per rule per date. See decision D55."
+            ),
+        )
+
+
+async def create_recurring_rule(
+    data: RecurringRuleCreate, user_id: uuid.UUID, db: AsyncSession
+) -> RecurringRuleOut:
+    """Create a recurring task rule with max_per_day validation (§9c)."""
+    _validate_max_per_day(data.max_per_day)
+    rule = RecurringTaskRule(user_id=user_id, **data.model_dump())
+    db.add(rule)
+    await db.flush()
+    return RecurringRuleOut.model_validate(rule)
+
+
+async def update_recurring_rule(
+    rule: RecurringTaskRule, data: RecurringRuleUpdate, db: AsyncSession
+) -> RecurringRuleOut:
+    """Update a recurring task rule with max_per_day validation (§9c)."""
+    if data.max_per_day is not None:
+        _validate_max_per_day(data.max_per_day)
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(rule, field, value)
+    await db.flush()
+    return RecurringRuleOut.model_validate(rule)
 
 
 async def _get_active_rules(
-    user_id: uuid.UUID,
-    weekday: int,
-    db: AsyncSession,
-) -> List[RecurringTaskRule]:
-    """Fetch active rules whose days_of_week includes the target weekday.
-
-    Uses PostgreSQL ``@>`` array containment:
-    ``ARRAY[weekday] <@ days_of_week`` checks if the weekday is in the array.
-    """
+    user_id: uuid.UUID, iso_weekday: int, db: AsyncSession
+) -> list[RecurringTaskRule]:
+    """Fetch active recurring rules applicable to the given weekday."""
     result = await db.execute(
         select(RecurringTaskRule).where(
             and_(
                 RecurringTaskRule.user_id == user_id,
                 RecurringTaskRule.is_active.is_(True),
-                RecurringTaskRule.days_of_week.any(weekday),
+                # I44: days_of_week uses Python weekday() — 0=Mon, 6=Sun
+                RecurringTaskRule.days_of_week.contains([iso_weekday]),
             )
         )
     )
-    return list(result.scalars().all())
+    return result.scalars().all()
 
 
 async def get_recurring_requirements(
-    user_id: uuid.UUID,
-    target_date: date,
-    db: AsyncSession,
-) -> List[TaskRequirement]:
-    """Convert active recurring rules into TaskRequirements for the solver.
+    user_id: uuid.UUID, target_date: date, db: AsyncSession
+) -> list[TaskRequirement]:
+    """I35/I43: Convert active recurring rules to TaskRequirements.
 
-    P0#1 FIX: Bulk dedup check — a single SELECT replaces the N+1 per-rule
-    loop that would saturate asyncpg connection pools at scale.
-
-    At 50 active rules/user × 100 concurrent users, the old N+1 pattern
-    fires 5,000 sequential SELECTs → P99 latency spikes to 2-4s → 504s.
-    The bulk pattern reduces this to O(1) DB round-trips.
-
-    Dedup Strategy (two-layer):
-      1. Pre-check: Bulk ``SELECT (recurring_rule_id, source_date)`` to skip
-         rules that already have tasks for this date. (This function.)
-      2. Index-only: ``uq_task_per_rule_per_date`` catches races in
-         ``_save_schedule()`` via SAVEPOINT + IntegrityError handling.
+    Pre-check dedup via NOT EXISTS query (bulk check on DB side).
+    No counter reservation — index-only dedup at persistence time (D54).
     """
-    iso_weekday = target_date.weekday()  # 0=Mon..6=Sun
+    iso_weekday = target_date.weekday()  # I44: Python weekday, not ISO 1-7
     rules = await _get_active_rules(user_id, iso_weekday, db)
-    if not rules:
-        return []
 
-    rule_ids = [r.id for r in rules]
-
-    # P0#1: Single round-trip dedup check — O(1) instead of O(N)
-    existing_pairs = await db.execute(
-        select(Task.recurring_rule_id, Task.source_date).where(
-            and_(
-                Task.recurring_rule_id.in_(rule_ids),
-                Task.source_date == target_date,
-                Task.deleted_at.is_(None),
-            )
-        )
-    )
-    existing_set = {(str(r), d) for r, d in existing_pairs.all()}
-
-    requirements: List[TaskRequirement] = []
+    requirements = []
     for rule in rules:
-        if (str(rule.id), target_date) in existing_set:
-            recurring_dedup_total.labels(outcome="precheck_hit").inc()
-            logger.debug(
-                "Recurring rule %s already has task for %s (precheck)",
-                rule.id, target_date,
-            )
+        # I43: Pre-check idempotency — avoids creating a TaskRequirement
+        # that will immediately fail at persistence (reduces solver noise).
+        existing = await db.execute(
+            select(Task.id).where(
+                and_(
+                    Task.recurring_rule_id == rule.id,
+                    Task.source_date == target_date,
+                    Task.deleted_at.is_(None),
+                )
+            ).limit(1)
+        )
+        if existing.scalar_one_or_none():
+            from app.core.metrics import recurring_dedup_precheck_hit
+            recurring_dedup_precheck_hit.labels(user_id=str(user_id)).inc()
             continue
 
         requirements.append(TaskRequirement(
             title=rule.title,
             task_type=rule.task_type,
             duration_mins=rule.duration_mins,
-            energy_required="medium",  # Default; v2 may add per-rule energy
+            energy_required="medium",
             priority=rule.priority,
             goal_id=str(rule.goal_id),
+            # I41: recurring_rule_id — NOT source_rule_id
             recurring_rule_id=str(rule.id),
             source_date=target_date,
         ))
 
-    logger.info(
-        "Recurring requirements for user %s date %s: %d rules, %d new tasks",
-        user_id, target_date, len(rules), len(requirements),
-    )
     return requirements

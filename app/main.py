@@ -16,6 +16,9 @@ from app.core.rate_limit import limiter
 from app.core.middleware import RequestIDMiddleware
 from app.routers import auth, onboarding, schedule, checkin, insights, goals, tasks, users, sse, health
 from app.routers.health import _cache_column_check
+from app.routers.recurring_rules import router as recurring_router
+from app.routers.notifications import router as notification_router
+from app.routers.milestones import router as milestone_router
 from app.services.event_bus import event_bus
 
 configure_logging()
@@ -112,6 +115,9 @@ app.include_router(tasks.router,      prefix="/api/v1")
 app.include_router(users.router,      prefix="/api/v1")
 app.include_router(sse.router,        prefix="/api/v1")
 app.include_router(health.router)
+app.include_router(recurring_router,     prefix="/api/v1", tags=["recurring-rules"])
+app.include_router(notification_router,  prefix="/api/v1", tags=["notifications"])
+app.include_router(milestone_router,     prefix="/api/v1", tags=["milestones"])
 
 
 @app.get("/", include_in_schema=False)

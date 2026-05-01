@@ -1,0 +1,393 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.11.9, pytest-9.0.3, pluggy-1.6.0 -- C:\Users\nirva\AppData\Local\Programs\Python\Python311\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\nirva\Downloads\Momentum API
+configfile: pytest.ini
+plugins: anyio-4.13.0, asyncio-1.3.0, cov-5.0.0, mock-3.15.1
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=session, asyncio_default_test_loop_scope=session
+collecting ... collected 1 item
+
+tests/test_sprint7_recurring_tasks.py::test_get_recurring_requirements FAILED [100%]
+
+================================== FAILURES ===================================
+_______________________ test_get_recurring_requirements _______________________
+
+self = <sqlalchemy.dialects.postgresql.asyncpg.AsyncAdapt_asyncpg_cursor object at 0x000001EDE9D959C0>
+operation = 'INSERT INTO tasks (id, schedule_id, user_id, goal_id, title, description, task_type, scheduled_start, scheduled_end, ...::VARCHAR, $16::VARCHAR, $17::INTEGER, $18::UUID, $19::DATE, $20::TIMESTAMP WITH TIME ZONE) RETURNING tasks.created_at'
+parameters = (UUID('3811c039-16a2-4418-9b1f-460c61c24021'), None, UUID('925ac5d2-00f4-45d5-8239-3b8278ebf7ed'), UUID('3ad6e012-5216-4014-aa76-56c9f02ef9f0'), 'Daily Math', None, ...)
+
+    async def _prepare_and_execute(self, operation, parameters):
+        adapt_connection = self._adapt_connection
+    
+        async with adapt_connection._execute_mutex:
+            if not adapt_connection._started:
+                await adapt_connection._start_transaction()
+    
+            if parameters is None:
+                parameters = ()
+    
+            try:
+                prepared_stmt, attributes = await adapt_connection._prepare(
+                    operation, self._invalidate_schema_cache_asof
+                )
+    
+                if attributes:
+                    self.description = [
+                        (
+                            attr.name,
+                            attr.type.oid,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                        )
+                        for attr in attributes
+                    ]
+                else:
+                    self.description = None
+    
+                if self.server_side:
+                    self._cursor = await prepared_stmt.cursor(*parameters)
+                    self.rowcount = -1
+                else:
+>                   self._rows = deque(await prepared_stmt.fetch(*parameters))
+                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+..\..\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py:534: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+..\..\AppData\Local\Programs\Python\Python311\Lib\site-packages\asyncpg\prepared_stmt.py:176: in fetch
+    data = await self.__bind_execute(args, 0, timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\AppData\Local\Programs\Python\Python311\Lib\site-packages\asyncpg\prepared_stmt.py:267: in __bind_execute
+    data, status, _ = await self.__do_execute(
+..\..\AppData\Local\Programs\Python\Python311\Lib\site-packages\asyncpg\prepared_stmt.py:256: in __do_execute
+    return await executor(protocol)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+>   ???
+E   asyncpg.exceptions.CheckViolationError: new row for relation "tasks" violates check constraint "tasks_task_type_check"
+E   DETAIL:  Failing row contains (3811c039-16a2-4418-9b1f-460c61c24021, null, 925ac5d2-00f4-45d5-8239-3b8278ebf7ed, 3ad6e012-5216-4014-aa76-56c9f02ef9f0, Daily Math, null, study, null, null, 60, medium, 1, f, 1, active, null, null, null, 0c19a747-0ad7-4a8a-ab8b-6501be2c0dcc, 2026-05-04, null, 2026-05-01 18:12:09.375232+00).
+
+asyncpg\\protocol\\protocol.pyx:206: CheckViolationError
+
+The above exception was the direct cause of the following exception:
+
+self = <sqlalchemy.engine.base.Connection object at 0x000001EDE98ABA90>
+dialect = <sqlalchemy.dialects.postgresql.asyncpg.PGDialect_asyncpg object at 0x000001EDE7FB1150>
+context = <sqlalchemy.dialects.postgresql.asyncpg.PGExecutionContext_asyncpg object at 0x000001EDE9E80B50>
+statement = <sqlalchemy.dialects.postgresql.asyncpg.PGCompiler_asyncpg object at 0x000001EDE9E80B90>
+parameters = [(UUID('3811c039-16a2-4418-9b1f-460c61c24021'), None, UUID('925ac5d2-00f4-45d5-8239-3b8278ebf7ed'), UUID('3ad6e012-5216-4014-aa76-56c9f02ef9f0'), 'Daily Math', None, ...)]
+
+    def _exec_single_context(
+        self,
+        dialect: Dialect,
+        context: ExecutionContext,
+        statement: Union[str, Compiled],
+        parameters: Optional[_AnyMultiExecuteParams],
+    ) -> CursorResult[Any]:
+        """continue the _execute_context() method for a single DBAPI
+        cursor.execute() or cursor.executemany() call.
+    
+        """
+        if dialect.bind_typing is BindTyping.SETINPUTSIZES:
+            generic_setinputsizes = context._prepare_set_input_sizes()
+    
+            if generic_setinputsizes:
+                try:
+                    dialect.do_set_input_sizes(
+                        context.cursor, generic_setinputsizes, context
+                    )
+                except BaseException as e:
+                    self._handle_dbapi_exception(
+                        e, str(statement), parameters, None, context
+                    )
+    
+        cursor, str_statement, parameters = (
+            context.cursor,
+            context.statement,
+            context.parameters,
+        )
+    
+        effective_parameters: Optional[_AnyExecuteParams]
+    
+        if not context.executemany:
+            effective_parameters = parameters[0]
+        else:
+            effective_parameters = parameters
+    
+        if self._has_events or self.engine._has_events:
+            for fn in self.dispatch.before_cursor_execute:
+                str_statement, effective_parameters = fn(
+                    self,
+                    cursor,
+                    str_statement,
+                    effective_parameters,
+                    context,
+                    context.executemany,
+                )
+    
+        if self._echo:
+            self._log_info(str_statement)
+    
+            stats = context._get_cache_stats()
+    
+            if not self.engine.hide_parameters:
+                self._log_info(
+                    "[%s] %r",
+                    stats,
+                    sql_util._repr_params(
+                        effective_parameters,
+                        batches=10,
+                        ismulti=context.executemany,
+                    ),
+                )
+            else:
+                self._log_info(
+                    "[%s] [SQL parameters hidden due to hide_parameters=True]",
+                    stats,
+                )
+    
+        evt_handled: bool = False
+        try:
+            if context.execute_style is ExecuteStyle.EXECUTEMANY:
+                effective_parameters = cast(
+                    "_CoreMultiExecuteParams", effective_parameters
+                )
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_executemany:
+                        if fn(
+                            cursor,
+                            str_statement,
+                            effective_parameters,
+                            context,
+                        ):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+                    self.dialect.do_executemany(
+                        cursor,
+                        str_statement,
+                        effective_parameters,
+                        context,
+                    )
+            elif not effective_parameters and context.no_parameters:
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_execute_no_params:
+                        if fn(cursor, str_statement, context):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+                    self.dialect.do_execute_no_params(
+                        cursor, str_statement, context
+                    )
+            else:
+                effective_parameters = cast(
+                    "_CoreSingleExecuteParams", effective_parameters
+                )
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_execute:
+                        if fn(
+                            cursor,
+                            str_statement,
+                            effective_parameters,
+                            context,
+                        ):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+>                   self.dialect.do_execute(
+                        cursor, str_statement, effective_parameters, context
+                    )
+
+..\..\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\engine\base.py:1967: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+..\..\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\engine\default.py:941: in do_execute
+    cursor.execute(statement, parameters)
+..\..\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py:568: in execute
+    self._adapt_connection.await_(
+..\..\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py:132: in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py:196: in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+..\..\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py:546: in _prepare_and_execute
+    self._handle_exception(error)
+..\..\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py:497: in _handle_exception
+    self._adapt_connection._handle_exception(error)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <AdaptedConnection <asyncpg.connection.Connection object at 0x000001EDE9E3DC60>>
+error = CheckViolationError('new row for relation "tasks" violates check constraint "tasks_task_type_check"')
+
+    def _handle_exception(self, error):
+        if self._connection.is_closed():
+            self._transaction = None
+            self._started = False
+    
+        if not isinstance(error, AsyncAdapt_asyncpg_dbapi.Error):
+            exception_mapping = self.dbapi._asyncpg_error_translate
+    
+            for super_ in type(error).__mro__:
+                if super_ in exception_mapping:
+                    translated_error = exception_mapping[super_](
+                        "%s: %s" % (type(error), error)
+                    )
+                    translated_error.pgcode = translated_error.sqlstate = (
+                        getattr(error, "sqlstate", None)
+                    )
+>                   raise translated_error from error
+E                   sqlalchemy.dialects.postgresql.asyncpg.AsyncAdapt_asyncpg_dbapi.IntegrityError: <class 'asyncpg.exceptions.CheckViolationError'>: new row for relation "tasks" violates check constraint "tasks_task_type_check"
+E                   DETAIL:  Failing row contains (3811c039-16a2-4418-9b1f-460c61c24021, null, 925ac5d2-00f4-45d5-8239-3b8278ebf7ed, 3ad6e012-5216-4014-aa76-56c9f02ef9f0, Daily Math, null, study, null, null, 60, medium, 1, f, 1, active, null, null, null, 0c19a747-0ad7-4a8a-ab8b-6501be2c0dcc, 2026-05-04, null, 2026-05-01 18:12:09.375232+00).
+
+..\..\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py:780: IntegrityError
+
+The above exception was the direct cause of the following exception:
+
+test_db = <conftest.LatencyAsyncSession object at 0x000001EDE9926350>
+setup_test_user = (<app.models.user.User object at 0x000001EDE9A13D10>, 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI5MjVhYzVkMi0wMG...29tIiwidHlwZSI6ImFjY2VzcyIsImV4cCI6MTc3NzY2MDkyOSwiaWF0IjoxNzc3NjU5MTI5fQ.-30j3kNrv55M0K8xzsmuORQB3YbGMb_UHH0jXzfGcDE')
+
+    async def test_get_recurring_requirements(test_db, setup_test_user):
+        """Verify rule translation and index-only dedup pre-check."""
+        user, _ = setup_test_user
+        user_id = user.id
+    
+        # Create goal to satisfy foreign key constraints
+        from app.models.goal import Goal
+        goal_id = uuid.uuid4()
+        goal = Goal(
+            id=goal_id, user_id=user_id, title="Test Goal",
+            goal_type="habit", status="active", priority_rank=1,
+            target_date=date(2026, 12, 31), motivation="Test",
+            consequence="Test", success_metric="Test", goal_metadata={}
+        )
+        test_db.add(goal)
+        await test_db.flush()
+    
+        # Target date: 2026-05-04 is a Monday (iso_weekday = 0)
+        target_date = date(2026, 5, 4)
+    
+        rule = RecurringTaskRule(
+            user_id=user_id, goal_id=goal_id, title="Daily Math",
+            task_type="study", duration_mins=60, days_of_week=[0], max_per_day=1,
+            is_active=True, priority=1
+        )
+        test_db.add(rule)
+        await test_db.flush()
+        await test_db.refresh(rule)
+    
+        # 1. First run -> should return 1 requirement
+        reqs = await get_recurring_requirements(user_id, target_date, test_db)
+        print(f"reqs: {reqs}")
+        rules_in_db = await _get_active_rules(user_id, 0, test_db)
+        print(f"rules_in_db: {rules_in_db}")
+    
+        assert len(reqs) == 1
+        assert reqs[0].title == "Daily Math"
+        assert reqs[0].recurring_rule_id == str(rule.id)
+    
+        # 2. Simulate persistence by creating a Task
+        task = Task(
+            user_id=user_id, goal_id=goal_id, title="Daily Math",
+            task_type="study", duration_mins=60, energy_required="medium",
+            recurring_rule_id=rule.id, source_date=target_date,
+            task_status="active", priority=1, sequence_order=1
+        )
+        test_db.add(task)
+>       await test_db.flush()
+
+tests\test_sprint7_recurring_tasks.py:185: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+..\..\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\ext\asyncio\session.py:800: in flush
+    await greenlet_spawn(self.sync_session.flush, objects=objects)
+..\..\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py:203: in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+..\..\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\orm\session.py:4352: in flush
+    self._flush(objects)
+..\..\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\orm\session.py:4487: in _flush
+    with util.safe_reraise():
+..\..\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\util\langhelpers.py:146: in __exit__
+    raise exc_value.with_traceback(exc_tb)
+..\..\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\orm\session.py:4448: in _flush
+    flush_context.execute()
+..\..\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\orm\unitofwork.py:466: in execute
+    rec.execute(self)
+..\..\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\orm\unitofwork.py:642: in execute
+    util.preloaded.orm_persistence.save_obj(
+..\..\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\orm\persistence.py:93: in save_obj
+    _emit_insert_statements(
+..\..\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\orm\persistence.py:1233: in _emit_insert_statements
+    result = connection.execute(
+..\..\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\engine\base.py:1418: in execute
+    return meth(
+..\..\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\sql\elements.py:515: in _execute_on_connection
+    return connection._execute_clauseelement(
+..\..\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\engine\base.py:1640: in _execute_clauseelement
+    ret = self._execute_context(
+..\..\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\engine\base.py:1846: in _execute_context
+    return self._exec_single_context(
+..\..\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\engine\base.py:1986: in _exec_single_context
+    self._handle_dbapi_exception(
+..\..\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\engine\base.py:2355: in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+..\..\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\engine\base.py:1967: in _exec_single_context
+    self.dialect.do_execute(
+..\..\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\engine\default.py:941: in do_execute
+    cursor.execute(statement, parameters)
+..\..\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py:568: in execute
+    self._adapt_connection.await_(
+..\..\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py:132: in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py:196: in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+..\..\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py:546: in _prepare_and_execute
+    self._handle_exception(error)
+..\..\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py:497: in _handle_exception
+    self._adapt_connection._handle_exception(error)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <AdaptedConnection <asyncpg.connection.Connection object at 0x000001EDE9E3DC60>>
+error = CheckViolationError('new row for relation "tasks" violates check constraint "tasks_task_type_check"')
+
+    def _handle_exception(self, error):
+        if self._connection.is_closed():
+            self._transaction = None
+            self._started = False
+    
+        if not isinstance(error, AsyncAdapt_asyncpg_dbapi.Error):
+            exception_mapping = self.dbapi._asyncpg_error_translate
+    
+            for super_ in type(error).__mro__:
+                if super_ in exception_mapping:
+                    translated_error = exception_mapping[super_](
+                        "%s: %s" % (type(error), error)
+                    )
+                    translated_error.pgcode = translated_error.sqlstate = (
+                        getattr(error, "sqlstate", None)
+                    )
+>                   raise translated_error from error
+E                   sqlalchemy.exc.IntegrityError: (sqlalchemy.dialects.postgresql.asyncpg.IntegrityError) <class 'asyncpg.exceptions.CheckViolationError'>: new row for relation "tasks" violates check constraint "tasks_task_type_check"
+E                   DETAIL:  Failing row contains (3811c039-16a2-4418-9b1f-460c61c24021, null, 925ac5d2-00f4-45d5-8239-3b8278ebf7ed, 3ad6e012-5216-4014-aa76-56c9f02ef9f0, Daily Math, null, study, null, null, 60, medium, 1, f, 1, active, null, null, null, 0c19a747-0ad7-4a8a-ab8b-6501be2c0dcc, 2026-05-04, null, 2026-05-01 18:12:09.375232+00).
+E                   [SQL: INSERT INTO tasks (id, schedule_id, user_id, goal_id, title, description, task_type, scheduled_start, scheduled_end, duration_mins, energy_required, priority, is_mvp_task, sequence_order, task_status, previous_status, goal_rank_snapshot, recurring_rule_id, source_date, deleted_at) VALUES ($1::UUID, $2::UUID, $3::UUID, $4::UUID, $5::VARCHAR, $6::VARCHAR, $7::VARCHAR, $8::VARCHAR, $9::VARCHAR, $10::INTEGER, $11::VARCHAR, $12::INTEGER, $13::BOOLEAN, $14::INTEGER, $15::VARCHAR, $16::VARCHAR, $17::INTEGER, $18::UUID, $19::DATE, $20::TIMESTAMP WITH TIME ZONE) RETURNING tasks.created_at]
+E                   [parameters: (UUID('3811c039-16a2-4418-9b1f-460c61c24021'), None, UUID('925ac5d2-00f4-45d5-8239-3b8278ebf7ed'), UUID('3ad6e012-5216-4014-aa76-56c9f02ef9f0'), 'Daily Math', None, 'study', None, None, 60, 'medium', 1, False, 1, 'active', None, None, UUID('0c19a747-0ad7-4a8a-ab8b-6501be2c0dcc'), datetime.date(2026, 5, 4), None)]
+E                   (Background on this error at: https://sqlalche.me/e/20/gkpj)
+
+..\..\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py:780: IntegrityError
+---------------------------- Captured stdout setup ----------------------------
+2026-05-01 23:42:09,070 DEBUG    passlib.handlers.bcrypt [-] detected 'bcrypt' backend, version '4.0.1'
+2026-05-01 23:42:09,070 DEBUG    passlib.handlers.bcrypt [-] 'bcrypt' backend lacks $2$ support, enabling workaround
+---------------------------- Captured stdout call -----------------------------
+reqs: [TaskRequirement(title='Daily Math', task_type='study', duration_mins=60, energy_required='medium', priority=1, subject=None, task_id=None, goal_id='3ad6e012-5216-4014-aa76-56c9f02ef9f0', recurring_rule_id='0c19a747-0ad7-4a8a-ab8b-6501be2c0dcc', source_date=datetime.date(2026, 5, 4))]
+rules_in_db: [<app.models.goal.RecurringTaskRule object at 0x000001EDE9A82ED0>]
+-------------------------- Captured stdout teardown ---------------------------
+2026-05-01 23:42:10,334 DEBUG    urllib3.connectionpool [-] http://localhost:None "DELETE /v1.54/containers/0179d50700a1442d2d889092cd5dec14a1ead52de8d6db10a2f8d1f516a6899e?v=True&link=False&force=True HTTP/1.1" 204 0
+---------------------------- Captured log teardown ----------------------------
+DEBUG    urllib3.connectionpool:connectionpool.py:544 http://localhost:None "DELETE /v1.54/containers/0179d50700a1442d2d889092cd5dec14a1ead52de8d6db10a2f8d1f516a6899e?v=True&link=False&force=True HTTP/1.1" 204 0
+=========================== short test summary info ===========================
+FAILED tests/test_sprint7_recurring_tasks.py::test_get_recurring_requirements
+============================== 1 failed in 4.23s ==============================
