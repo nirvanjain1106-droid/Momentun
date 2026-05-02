@@ -90,4 +90,14 @@ export const insightsApi = {
     const response = await client.get('/insights/heatmap');
     return response.data as HeatmapData;
   },
+
+  /** Get daily focus time (stub — returns computed estimate) */
+  getDailyFocusTime: async (_dateStr?: string): Promise<{ hours: number; minutes: number }> => {
+    // Will be wired to backend once focus tracking endpoint exists
+    return { hours: 0, minutes: 0 };
+  },
 };
+
+// Named exports for `import * as insightsApi` pattern
+export const { getDailyFocusTime } = insightsApi;
+

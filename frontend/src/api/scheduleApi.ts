@@ -275,4 +275,135 @@ export const scheduleApi = {
     );
     return normalizeTask(response.data as RawTask);
   },
+
+  /** GET today's tasks as a flat array (wraps getTodaySchedule) */
+  getTasks: async (dateStr?: string): Promise<TaskDetail[]> => {
+    const schedule = await scheduleApi.getTodaySchedule(dateStr);
+    return schedule.tasks;
+  },
+
+  /** Get unfinished (non-completed) tasks for a given date */
+  getUnfinishedTasks: async (dateStr?: string): Promise<TaskDetail[]> => {
+    const schedule = await scheduleApi.getTodaySchedule(dateStr);
+    return schedule.tasks.filter(
+      (t) => t.task_status !== 'completed' && t.task_status !== 'done',
+    );
+  },
+
+  /** Aggregated stats for the day (computed from schedule) */
+  getTodayStats: async (dateStr?: string) => {
+    const schedule = await scheduleApi.getTodaySchedule(dateStr);
+    const total = schedule.tasks.length;
+    const done = schedule.tasks.filter(
+      (t) => t.task_status === 'completed' || t.task_status === 'done',
+    ).length;
+    return {
+      tasksTotal: total,
+      tasksDone: done,
+      tasksDelta: '',
+      energyScore: total > 0 ? Math.round((done / total) * 100) : 0,
+    };
+  },
+
+  /** POST /checkin/morning — submit morning check-in */
+  saveMorningCheckin: async (data: Record<string, unknown>) => {
+    const response = await client.post('/checkin/morning', {
+      energy_level: data.energy_level,
+      yesterday_reflection: data.mood_note || '',
+    });
+    return response.data;
+  },
+
+  /** POST /checkin/evening — submit evening review */
+  saveEveningReview: async (data: Record<string, unknown>) => {
+    const response = await client.post('/checkin/evening', {
+      mood_score: data.day_rating,
+      reflection: data.biggest_win || '',
+      completed_task_ids: [],
+    });
+    return response.data;
+  },
+
+  /** Get morning check-in for a date (stub — returns null if not available) */
+  getMorningCheckin: async (_dateStr?: string) => {
+    // Backend doesn't have a GET endpoint for check-in yet
+    return null as { priorities: Array<{ id: string; text: string; completed: boolean }> } | null;
+  },
+
+  /** Update priority completion status (stub — local only) */
+  updatePriorityStatus: async (_id: string, _completed: boolean) => {
+    // Will be wired to task complete/undo when priorities are stored as tasks
+    return { ok: true };
+  },
+
+  /** Set sleep reminder (stub — notification engine) */
+  setSleepReminder: async (_time: string) => {
+    console.info('[Momentum] Sleep reminder set for', _time);
+    return { ok: true };
+  },
+
+  /** Block focus time window (stub — notification engine) */
+  blockFocusTime: async (_start: string, _end: string) => {
+    console.info('[Momentum] Focus block set:', _start, '-', _end);
+    return { ok: true };
+  },
 };
+
+// ─── Standalone named exports for screen imports ─────────────────
+// screen-evening-review.tsx uses `import * as scheduleApi` so these
+// are accessible as scheduleApi.getTodayStats etc.
+
+export const { getTodayStats, getTasks, getUnfinishedTasks } = scheduleApi;
+export const { saveMorningCheckin, saveEveningReview, getMorningCheckin } = scheduleApi;
+export const { updatePriorityStatus, setSleepReminder, blockFocusTime } = scheduleApi;
+
+/** Standalone rescheduleTask for evening review (taskId, date) signature */
+export async function rescheduleTask(taskId: string, targetDate: string) {
+  return scheduleApi.rescheduleTask({ task_id: taskId, target_date: targetDate });
+}
+
+// ─── GoalDetail type + getGoalById for screen-goal-detail.tsx ────
+
+export interface GoalDetail {
+  id: string;
+  name: string;
+  subtitle: string;
+  status: 'On Track' | 'Slightly Behind' | 'Behind' | 'Achieved';
+  progress: number;
+  color: string;
+  trajectory: number[];
+  milestones: Array<{ id: string; name: string; dueDate: string; completed: boolean }>;
+  linkedTasks: Array<{ id: string; name: string; duration: string; color?: string }>;
+}
+
+export async function getGoalById(goalId: string): Promise<GoalDetail> {
+  const response = await client.get(`/goals/${goalId}`);
+  const raw = response.data as Record<string, unknown>;
+  return {
+    id: String(raw.id ?? goalId),
+    name: String(raw.title ?? 'Untitled Goal'),
+    subtitle: String(raw.description ?? ''),
+    status: mapGoalStatus(raw.status as string),
+    progress: Number(raw.progress_pct ?? 0),
+    color: '#B8472A',
+    trajectory: [],
+    milestones: Array.isArray(raw.milestones)
+      ? (raw.milestones as Array<Record<string, unknown>>).map((m) => ({
+          id: String(m.id ?? ''),
+          name: String(m.title ?? ''),
+          dueDate: String(m.target_date ?? ''),
+          completed: Boolean(m.completed),
+        }))
+      : [],
+    linkedTasks: [],
+  };
+}
+
+function mapGoalStatus(status?: string): GoalDetail['status'] {
+  if (!status) return 'On Track';
+  const s = status.toLowerCase();
+  if (s === 'achieved') return 'Achieved';
+  if (s.includes('behind')) return 'Behind';
+  if (s.includes('slightly')) return 'Slightly Behind';
+  return 'On Track';
+}

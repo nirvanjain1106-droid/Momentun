@@ -1,0 +1,331 @@
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  /* Momentum Colors/Light Variable Collection */
+
+  /* Background */
+  --bg-base: #FAF6F2;
+  --bg-secondary: #F2EDE8;
+
+  /* Surface */
+  --surface-card: #FFFFFF;
+  --surface-border: #EDE5DE;
+  --divider: #EDE5DE;
+
+  /* Accent */
+  --accent-primary: #B8472A;
+  --accent-hover: #A03D22;
+  --gloss-start: #D8694A;    /* Gradient first stop — hero cards & CTA buttons */
+  --accent-tint: #F5E8E4;
+  --accent-mid: #D4795C;
+  --chart-line: #C4603A;
+
+  /* Text */
+  --text-primary: #1A1210;
+  --text-secondary: #6B5C54;
+  --text-muted: #9C8880;
+  --text-on-accent: #FFFFFF;
+
+  /* Status */
+  --status-success: #1A7A4A;
+  --status-warning: #C47F1A;
+  --status-error: #C0392B;
+  --status-energy: #D4920A;
+  --status-success-bg: #F0FAF4;
+  --status-warning-bg: #FEF9EE;
+  --status-error-bg: #FEF0EE;
+
+  /* Goal Ring Colors */
+  --goal-ring-pink: #E05C7A;
+  --goal-ring-green: #1A7A4A;
+  --goal-ring-teal: #2E9FD4;
+
+  /* Spacing Variable Collection */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 20px;
+  --space-2xl: 24px;
+  --space-3xl: 32px;
+
+  /* Radius Variable Collection */
+  --radius-card: 16px;
+  --radius-btn: 12px;
+  --radius-pill: 100px;
+  --radius-chip: 10px;
+  --radius-sm: 8px;
+  --radius-avatar: 100px;
+
+  /* Font */
+  --font-size: 16px;
+  --font-weight-medium: 500;
+  --font-weight-normal: 400;
+
+  /* ── Text Styles (Figma "Text/*" collection) ─────────────────────────── */
+  /* Font family */
+  --font-sf-pro: 'SF Pro Display', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+
+  /* Font weights */
+  --font-weight-bold: 700;
+  --font-weight-semibold: 600;
+  --font-weight-regular: 400;
+
+  /* Font sizes */
+  --text-large-title-size: 28px;
+  --text-title-1-size:     22px;
+  --text-title-2-size:     17px;
+  --text-body-size:        15px;
+  --text-caption-size:     12px;
+  --text-metric-large-size: 34px;
+  --text-metric-mid-size:  28px;
+  --text-delta-size:       12px;
+  --text-on-accent-size:   15px;
+  --text-label-small-size: 11px;
+
+  /* Line heights */
+  --text-lh-140: 1.4;
+  --text-lh-120: 1.2;
+
+  /* ── Effect Styles (Figma "Shadow/*" collection) ─────────────────────── */
+
+  /* Shadow/Card — subtle ambient lift, two-layer */
+  --shadow-card:
+    0px 2px 8px 0px rgba(26, 18, 16, 0.06),
+    0px 0px 1px 0px rgba(26, 18, 16, 0.08);
+
+  /* Shadow/Button — accent-tinted elevation for CTAs */
+  --shadow-btn:
+    0px 4px 12px 0px rgba(184, 71, 42, 0.30);
+
+  /* Shadow/Hero-Card — stronger accent glow for featured cards */
+  --shadow-hero-card:
+    0px 8px 24px 0px rgba(184, 71, 42, 0.20);
+
+  /* Shadow/Tab-Bar — upward border + soft lift for the bottom nav bar */
+  --shadow-tab-bar:
+    0px -1px 0px 0px #EDE5DE,
+    0px -4px 12px 0px rgba(26, 18, 16, 0.04);
+}
+
+/* Dark mode placeholder - to be implemented later */
+.dark {
+  --bg-base: #0D0B0A;
+  --surface-card: #1A1612;
+  --accent-primary: #C95F3F;
+}
+
+@theme inline {
+  /* Background colors */
+  --color-bg-base: var(--bg-base);
+  --color-bg-secondary: var(--bg-secondary);
+
+  /* Surface colors */
+  --color-surface-card: var(--surface-card);
+  --color-surface-border: var(--surface-border);
+  --color-divider: var(--divider);
+
+  /* Accent colors */
+  --color-accent-primary: var(--accent-primary);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-tint: var(--accent-tint);
+  --color-accent-mid: var(--accent-mid);
+  --color-chart-line: var(--chart-line);
+
+  /* Text colors */
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  --color-text-on-accent: var(--text-on-accent);
+
+  /* Status colors */
+  --color-status-success: var(--status-success);
+  --color-status-warning: var(--status-warning);
+  --color-status-error: var(--status-error);
+  --color-status-energy: var(--status-energy);
+  --color-status-success-bg: var(--status-success-bg);
+  --color-status-warning-bg: var(--status-warning-bg);
+  --color-status-error-bg: var(--status-error-bg);
+
+  /* Goal ring colors */
+  --color-goal-ring-pink: var(--goal-ring-pink);
+  --color-goal-ring-green: var(--goal-ring-green);
+  --color-goal-ring-teal: var(--goal-ring-teal);
+
+  /* Spacing */
+  --spacing-xs: var(--space-xs);
+  --spacing-sm: var(--space-sm);
+  --spacing-md: var(--space-md);
+  --spacing-lg: var(--space-lg);
+  --spacing-xl: var(--space-xl);
+  --spacing-2xl: var(--space-2xl);
+  --spacing-3xl: var(--space-3xl);
+
+  /* Text style font sizes → enables Tailwind `text-large-title`, `text-body`, etc. */
+  --text-large-title:  var(--text-large-title-size);
+  --text-title-1:      var(--text-title-1-size);
+  --text-title-2:      var(--text-title-2-size);
+  --text-body:         var(--text-body-size);
+  --text-caption:      var(--text-caption-size);
+  --text-metric-large: var(--text-metric-large-size);
+  --text-metric-mid:   var(--text-metric-mid-size);
+  --text-delta:        var(--text-delta-size);
+  --text-on-accent:    var(--text-on-accent-size);
+  --text-label-small:  var(--text-label-small-size);
+
+  /* Font weights → enables Tailwind `font-bold-700`, `font-semibold-600` etc. */
+  --font-weight-bold:     var(--font-weight-bold);
+  --font-weight-semibold: var(--font-weight-semibold);
+  --font-weight-regular:  var(--font-weight-regular);
+
+  /* Shadow tokens → enables Tailwind `shadow-card`, `shadow-btn`, etc. */
+  --shadow-card:      var(--shadow-card);
+  --shadow-btn:       var(--shadow-btn);
+  --shadow-hero-card: var(--shadow-hero-card);
+  --shadow-tab-bar:   var(--shadow-tab-bar);
+}
+
+@layer base {
+  * {
+    @apply border-surface-border;
+  }
+
+  body {
+    @apply bg-bg-base text-text-primary;
+    font-family: var(--font-sf-pro);
+  }
+
+  /* ── Composite Text Style classes ─────────────────────────────────────── */
+  /* Usage: <h1 class="text-style-large-title"> or apply via @apply         */
+
+  .text-style-large-title {
+    font-family: var(--font-sf-pro);
+    font-size: var(--text-large-title-size);
+    font-weight: var(--font-weight-bold);
+    line-height: var(--text-lh-140);
+    color: var(--text-primary);
+  }
+
+  .text-style-title-1 {
+    font-family: var(--font-sf-pro);
+    font-size: var(--text-title-1-size);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--text-lh-140);
+    color: var(--text-primary);
+  }
+
+  .text-style-title-2 {
+    font-family: var(--font-sf-pro);
+    font-size: var(--text-title-2-size);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--text-lh-140);
+    color: var(--text-primary);
+  }
+
+  .text-style-body {
+    font-family: var(--font-sf-pro);
+    font-size: var(--text-body-size);
+    font-weight: var(--font-weight-regular);
+    line-height: var(--text-lh-140);
+    color: var(--text-secondary);
+  }
+
+  .text-style-caption {
+    font-family: var(--font-sf-pro);
+    font-size: var(--text-caption-size);
+    font-weight: var(--font-weight-regular);
+    line-height: var(--text-lh-140);
+    color: var(--text-muted);
+  }
+
+  .text-style-metric-large {
+    font-family: var(--font-sf-pro);
+    font-size: var(--text-metric-large-size);
+    font-weight: var(--font-weight-bold);
+    line-height: var(--text-lh-120);
+    color: var(--text-primary);
+  }
+
+  .text-style-metric-mid {
+    font-family: var(--font-sf-pro);
+    font-size: var(--text-metric-mid-size);
+    font-weight: var(--font-weight-bold);
+    line-height: var(--text-lh-120);
+    color: var(--text-primary);
+  }
+
+  .text-style-delta {
+    font-family: var(--font-sf-pro);
+    font-size: var(--text-delta-size);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--text-lh-140);
+    color: var(--status-success);
+  }
+
+  .text-style-on-accent {
+    font-family: var(--font-sf-pro);
+    font-size: var(--text-on-accent-size);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--text-lh-140);
+    color: var(--text-on-accent);
+  }
+
+  .text-style-label-small {
+    font-family: var(--font-sf-pro);
+    font-size: var(--text-label-small-size);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--text-lh-140);
+    color: var(--text-muted);
+  }
+
+  /**
+  * Default typography styles for HTML elements (h1-h4, p, label, button, input).
+  * These are in @layer base, so Tailwind utility classes (like text-sm, text-lg) automatically override them.
+  */
+
+  html {
+    font-size: var(--font-size);
+  }
+
+  h1 {
+    font-size: var(--text-2xl);
+    font-weight: var(--font-weight-medium);
+    line-height: 1.5;
+  }
+
+  h2 {
+    font-size: var(--text-xl);
+    font-weight: var(--font-weight-medium);
+    line-height: 1.5;
+  }
+
+  h3 {
+    font-size: var(--text-lg);
+    font-weight: var(--font-weight-medium);
+    line-height: 1.5;
+  }
+
+  h4 {
+    font-size: var(--text-base);
+    font-weight: var(--font-weight-medium);
+    line-height: 1.5;
+  }
+
+  label {
+    font-size: var(--text-base);
+    font-weight: var(--font-weight-medium);
+    line-height: 1.5;
+  }
+
+  button {
+    font-size: var(--text-base);
+    font-weight: var(--font-weight-medium);
+    line-height: 1.5;
+  }
+
+  input {
+    font-size: var(--text-base);
+    font-weight: var(--font-weight-normal);
+    line-height: 1.5;
+  }
+}

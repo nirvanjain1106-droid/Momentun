@@ -1,4 +1,5 @@
 import { client } from './client';
+import { useAuthStore } from '../stores/authStore';
 import type { DayScore } from './scheduleApi';
 
 export interface UserProfile {
@@ -47,6 +48,58 @@ const normalizeProfile = (raw: Record<string, unknown>): UserProfile => ({
   created_at: String(raw.created_at ?? ''),
 });
 
+/* ──────────────────────────────────────────────────────────────────────────
+ *  Auth convenience functions — named exports consumed by screen components
+ * ────────────────────────────────────────────────────────────────────────── */
+
+/** POST /auth/login — sets httpOnly cookies, updates authStore */
+export async function login(email: string, password: string) {
+  const res = await client.post('/auth/login', { email, password });
+  const data = res.data as { access_token: string; user_id: string; name?: string; onboarding_complete?: boolean };
+  // Store the access token for subsequent requests
+  const { setAccessToken: setToken } = await import('./client');
+  setToken(data.access_token);
+  // Update auth store (userId, userName, onboardingComplete)
+  useAuthStore.getState().login(data.user_id, data.name ?? '', !!data.onboarding_complete);
+  return data;
+}
+
+/** POST /auth/register — creates account, sets cookies, updates authStore */
+export async function register(payload: {
+  name: string;
+  email: string;
+  password: string;
+  user_type?: string;
+  timezone?: string;
+}) {
+  const res = await client.post('/auth/register', payload);
+  const data = res.data as { access_token: string; user_id: string; name?: string; onboarding_complete?: boolean };
+  const { setAccessToken: setToken } = await import('./client');
+  setToken(data.access_token);
+  useAuthStore.getState().login(data.user_id, data.name ?? payload.name, !!data.onboarding_complete);
+  return data;
+}
+
+/** POST /auth/logout — clears cookies + authStore */
+export async function logout() {
+  try {
+    await client.post('/auth/logout');
+  } catch {
+    // If backend is unreachable, still clear local state
+  }
+  useAuthStore.getState().logout();
+}
+
+/** GET /users/me — returns normalised UserProfile */
+export async function getMe(): Promise<UserProfile> {
+  const res = await client.get('/users/me');
+  return normalizeProfile(res.data as Record<string, unknown>);
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+ *  userApi object — used by settings screen and other components
+ * ────────────────────────────────────────────────────────────────────────── */
+
 export const userApi = {
   getProfile: async (): Promise<UserProfile> => {
     const response = await client.get('/users/me');
@@ -93,3 +146,4 @@ export const userApi = {
     return response.data as { message: string };
   },
 };
+
