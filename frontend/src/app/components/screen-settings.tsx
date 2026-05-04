@@ -32,6 +32,50 @@ const DEFAULT_PREFS = {
 
 type Prefs = typeof DEFAULT_PREFS;
 
+const SectionLabel = ({ text }: { text: string }) => (
+  <div className="text-[11px] font-semibold text-[#9C8880] uppercase tracking-[0.08em] mb-[8px] ml-2">
+    {text}
+  </div>
+);
+
+const SectionRow = ({
+  icon: Icon,
+  iconColor = "#1A1210",
+  iconBg = "#F5E8E4",
+  label,
+  sublabel,
+  rightContent,
+  onClick,
+  isLast = false,
+  labelColor = "#1A1210"
+}: any) => (
+  <div 
+    onClick={onClick}
+    className={`h-[56px] flex items-center justify-between px-4 hover:bg-[#FAF6F2] transition-colors ${onClick ? 'cursor-pointer' : ''} ${!isLast ? 'border-b-[0.5px] border-[#EDE5DE]' : ''}`}
+  >
+    <div className="flex items-center gap-3 overflow-hidden">
+      <div className="w-[32px] h-[32px] rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: iconBg }}>
+        <Icon size={20} color={iconColor} />
+      </div>
+      <div className="flex flex-col overflow-hidden">
+        <span className="text-[15px] truncate" style={{ color: labelColor }}>{label}</span>
+        {sublabel && (
+          <span className="text-[12px] text-[#9C8880] truncate leading-tight">{sublabel}</span>
+        )}
+      </div>
+    </div>
+    <div className="flex-shrink-0 ml-2">
+      {rightContent}
+    </div>
+  </div>
+);
+
+const Toggle = ({ isOn }: { isOn: boolean }) => (
+  <div className={`w-[44px] h-[24px] rounded-full transition-colors relative flex items-center ${isOn ? 'bg-[#B8472A]' : 'bg-[#EDE5DE]'}`}>
+    <div className={`absolute w-[20px] h-[20px] bg-white rounded-full transition-transform shadow-sm top-[2px] ${isOn ? 'translate-x-[22px]' : 'translate-x-[2px]'}`} />
+  </div>
+);
+
 export default function ScreenSettings({ navigate }: Props) {
   const [email, setEmail] = useState<string>('');
   const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
@@ -156,50 +200,6 @@ export default function ScreenSettings({ navigate }: Props) {
       }
     });
   };
-
-  const SectionLabel = ({ text }: { text: string }) => (
-    <div className="text-[11px] font-semibold text-[#9C8880] uppercase tracking-[0.08em] mb-[8px] ml-2">
-      {text}
-    </div>
-  );
-
-  const SectionRow = ({
-    icon: Icon,
-    iconColor = "#1A1210",
-    iconBg = "#F5E8E4",
-    label,
-    sublabel,
-    rightContent,
-    onClick,
-    isLast = false,
-    labelColor = "#1A1210"
-  }: any) => (
-    <div 
-      onClick={onClick}
-      className={`h-[56px] flex items-center justify-between px-4 hover:bg-[#FAF6F2] transition-colors ${onClick ? 'cursor-pointer' : ''} ${!isLast ? 'border-b-[0.5px] border-[#EDE5DE]' : ''}`}
-    >
-      <div className="flex items-center gap-3 overflow-hidden">
-        <div className="w-[32px] h-[32px] rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: iconBg }}>
-          <Icon size={20} color={iconColor} />
-        </div>
-        <div className="flex flex-col overflow-hidden">
-          <span className="text-[15px] truncate" style={{ color: labelColor }}>{label}</span>
-          {sublabel && (
-            <span className="text-[12px] text-[#9C8880] truncate leading-tight">{sublabel}</span>
-          )}
-        </div>
-      </div>
-      <div className="flex-shrink-0 ml-2">
-        {rightContent}
-      </div>
-    </div>
-  );
-
-  const Toggle = ({ isOn }: { isOn: boolean }) => (
-    <div className={`w-[44px] h-[24px] rounded-full transition-colors relative flex items-center ${isOn ? 'bg-[#B8472A]' : 'bg-[#EDE5DE]'}`}>
-      <div className={`absolute w-[20px] h-[20px] bg-white rounded-full transition-transform shadow-sm top-[2px] ${isOn ? 'translate-x-[22px]' : 'translate-x-[2px]'}`} />
-    </div>
-  );
 
   return (
     <div className="min-h-screen w-[390px] mx-auto bg-[#FAF6F2] font-sans flex flex-col relative overflow-hidden text-[#1A1210]">

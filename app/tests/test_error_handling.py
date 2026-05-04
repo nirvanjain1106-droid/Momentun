@@ -6,7 +6,6 @@ Targets the global exception handler in app/main.py and FastAPI's built-in
 validation error responses.
 """
 
-from unittest.mock import patch, AsyncMock
 
 import pytest
 from httpx import AsyncClient

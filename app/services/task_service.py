@@ -185,6 +185,9 @@ async def _find_next_available_date(
                     energy_required=t.energy_required,
                     scheduled_start=t.scheduled_start,
                     scheduled_end=t.scheduled_end,
+                    priority=t.priority,
+                    is_mvp_task=t.is_mvp_task,
+                    sequence_order=t.sequence_order,
                 ))
                 
         solver = await build_solver_for_user(user_id, candidate, db)
@@ -235,7 +238,7 @@ async def reschedule_task(
         from app.services.schedule_service import build_solver_for_user
         
         req = TaskRequirement(
-            id=str(task.id),
+            task_id=str(task.id),
             title=task.title,
             task_type=task.task_type,
             duration_mins=task.duration_mins,
@@ -260,6 +263,9 @@ async def reschedule_task(
                 energy_required=t.energy_required,
                 scheduled_start=t.scheduled_start,
                 scheduled_end=t.scheduled_end,
+                priority=t.priority,
+                is_mvp_task=t.is_mvp_task,
+                sequence_order=t.sequence_order,
             ))
             
         solver = await build_solver_for_user(user_id, target_date, db)
@@ -407,7 +413,7 @@ async def get_parked_tasks(
             task_status=t.task_status,
             days_parked=days_parked,
             is_stale=is_stale,
-            created_at=t.created_at,
+            created_at=t.created_at.isoformat(),
         ))
 
     return ParkedTasksListResponse(
@@ -468,7 +474,7 @@ async def bulk_delete_tasks(
         .execution_options(synchronize_session="fetch")
     )
 
-    deleted_count = result.rowcount
+    deleted_count = getattr(result, 'rowcount', 0) or 0
     logger.info("tasks_bulk_deleted", extra={
         "user_id": str(user_id), "deleted_count": deleted_count,
     })

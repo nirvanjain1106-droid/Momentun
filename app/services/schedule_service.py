@@ -356,7 +356,6 @@ async def _generate_schedule_internal(
 
     # --- Slice 3b: Recurring rules → solver (§11) ---
     import logging
-    from app.services.recurring_task_service import get_recurring_requirements
 
     _logger = logging.getLogger(__name__)
 
@@ -499,7 +498,7 @@ async def get_today_schedule(user: User, db: AsyncSession) -> ScheduleResponse:
         return ScheduleResponse(
             id=uuid.uuid4(),
             user_id=user.id,
-            schedule_date=get_user_today(user.timezone),
+            schedule_date=get_user_today(user.timezone).isoformat(),
             day_type="paused",
             day_type_reason=f"Account paused: {user.paused_reason or 'rest mode'}",
             strategy_note="You're on a break. Rest up ΓÇö your goals will be here when you're ready.",
@@ -740,7 +739,7 @@ async def _apply_horizon_line(
         # A user in Asia/Kolkata on a UTC server would otherwise have tasks
         # expire ~5.5 hours early/late.
         logger.warning("timezone_fallback_to_utc", extra={"user_tz": user_tz})
-        tz = timezone.utc
+        tz = timezone.utc  # type: ignore[assignment]
 
     now = datetime.now(tz)
     today = now.date()
@@ -761,6 +760,8 @@ async def _apply_horizon_line(
 
     expired_count = 0
     for task in tasks_result.scalars().all():
+        if task.scheduled_end is None:
+            continue
         try:
             end_parts = task.scheduled_end.split(":")
             task_end_dt = datetime(
@@ -1215,7 +1216,7 @@ async def _build_schedule_response(
     return ScheduleResponse(
         id=schedule.id,
         user_id=schedule.user_id,
-        schedule_date=schedule.schedule_date,
+        schedule_date=schedule.schedule_date.isoformat(),
         day_type=schedule.day_type,
         day_type_reason=schedule.day_type_reason,
         strategy_note=schedule.strategy_note,

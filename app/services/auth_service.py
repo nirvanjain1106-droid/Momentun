@@ -192,6 +192,8 @@ async def refresh_access_token(raw_refresh_token: str, db: AsyncSession) -> dict
         raise HTTPException(status_code=401, detail="Token revoked or unknown")
 
     used_at = old_token.used_at
+    if used_at is None:
+        raise HTTPException(status_code=401, detail="Token revoked or unknown")
     if used_at.tzinfo is None:
         used_at = used_at.replace(tzinfo=timezone.utc)
     elapsed = (datetime.now(timezone.utc) - used_at).total_seconds()

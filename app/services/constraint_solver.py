@@ -495,7 +495,7 @@ class ConstraintSolver:
         """
         if not windows or not goal_groups:
             all_tasks = [t for g in goal_groups for t in g.tasks]
-            return [], all_tasks, [g.goal_id for g in goal_groups]
+            return [], all_tasks, [g.goal_id or "" for g in goal_groups]
 
         energy_order = {"high": 0, "medium": 1, "low": 2}
 
@@ -516,12 +516,12 @@ class ConstraintSolver:
         placed_tasks: set = set()
 
         # ── Pass 1: Best-effort floor per goal (rank order) ──
-        sorted_groups = sorted(goal_groups, key=lambda g: g.goal_rank)
+        sorted_groups = sorted(goal_groups, key=lambda g: g.goal_rank if g.goal_rank is not None else 999)
 
         for group in sorted_groups:
             # Capacity gate: if we've already hit the limit, lower-ranked goals lose their floor
             if total_scheduled_mins >= effective_capacity_mins:
-                unsatisfied_goals.append(group.goal_id)
+                unsatisfied_goals.append(group.goal_id or "")
                 continue
 
             # Find Core tasks for this goal
@@ -532,7 +532,7 @@ class ConstraintSolver:
                 # No Core task defined — try any task
                 core_tasks = list(group.tasks)
             if not core_tasks:
-                unsatisfied_goals.append(group.goal_id)
+                unsatisfied_goals.append(group.goal_id or "")
                 continue
 
             floor_placed = False
@@ -575,7 +575,7 @@ class ConstraintSolver:
                         break
 
             if not floor_placed:
-                unsatisfied_goals.append(group.goal_id)
+                unsatisfied_goals.append(group.goal_id or "")
 
         # ── Pass 2: Global rank expenditure ──
         remaining_tasks = []

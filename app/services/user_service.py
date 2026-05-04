@@ -46,7 +46,7 @@ async def get_profile(user: User) -> UserProfileResponse:
         email_verified=user.email_verified,
         is_paused=user.paused_at is not None,
         paused_reason=user.paused_reason,
-        created_at=user.created_at,
+        created_at=user.created_at.isoformat(),
     )
 
 
@@ -196,7 +196,7 @@ async def submit_feedback(
         id=feedback.id,
         feedback_type=feedback.feedback_type,
         message=feedback.message,
-        created_at=feedback.created_at,
+        created_at=feedback.created_at.isoformat(),
     )
 
 

@@ -3,7 +3,7 @@ Tests for Sprint 7 Notification Engine
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
@@ -13,7 +13,6 @@ from app.services.notification_service import (
     _evaluate_rescue_candidate,
     create_rescue_notification
 )
-from tests.conftest import make_user, make_goal
 
 pytestmark = pytest.mark.asyncio
 

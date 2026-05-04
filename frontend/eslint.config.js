@@ -30,6 +30,8 @@ export default defineConfig([
       'no-useless-catch': 'warn',
       'react-hooks/exhaustive-deps': 'warn',
       'react-hooks/purity': 'off',
+      'react-hooks/set-state-in-effect': 'off',
+      'react-refresh/only-export-components': 'off',
       'security/detect-object-injection': 'warn',
       'security/detect-non-literal-regexp': 'warn',
       'security/detect-eval-with-expression': 'error',

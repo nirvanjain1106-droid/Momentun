@@ -5,7 +5,7 @@ Write path (D9): Hard failure — raises on encryption error.
 Read path (D22, D28, D33): Graceful degradation — returns None or "[encrypted]" on failure.
 """
 import logging
-from typing import Optional
+from typing import Optional, Any
 
 from app.config import settings
 from app.core.encryption import encrypt_field_versioned, decrypt_field_versioned
@@ -14,6 +14,8 @@ logger = logging.getLogger(__name__)
 
 # Prometheus counter for long-lived API process (Part 1 §9).
 # Unlike ephemeral scripts, the API runs long enough for Prometheus to scrape.
+daily_log_decrypt_failures: Any = None
+
 try:
     from prometheus_client import Counter
     daily_log_decrypt_failures = Counter(
@@ -21,7 +23,6 @@ try:
         'Failed decrypt attempts on DailyLog read path',
     )
 except ImportError:
-    # Graceful fallback if prometheus_client not installed
     daily_log_decrypt_failures = None
 
 

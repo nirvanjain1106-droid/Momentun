@@ -39,7 +39,7 @@ async def db_engine():
     Using NullPool ensures connections are freshly bound to the current loop,
     preventing state leakage and 'different loop' errors across test functions.
     """
-    from testcontainers.postgres import PostgresContainer
+    from testcontainers.postgres import PostgresContainer  # type: ignore[import-untyped]
     from app.database import Base
     import app.models  # noqa: F401 # MANDATORY: Ensures all tables are registered before create_all()
     

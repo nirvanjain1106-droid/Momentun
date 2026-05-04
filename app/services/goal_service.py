@@ -489,7 +489,7 @@ async def _compute_current_value(user_id, goal_id, db) -> float:
     import sqlalchemy as sa
     from sqlalchemy import func, and_, cast, select
     from sqlalchemy import Date as SADate
-    from app.models.goal import Goal, Task
+    from app.models.goal import Goal
 
     goal_result = await db.execute(
         select(Goal.created_at).where(Goal.id == goal_id)
@@ -544,7 +544,7 @@ async def _build_goal_response(goal: Goal, db: AsyncSession) -> GoalDetailRespon
         title=goal.title,
         goal_type=goal.goal_type,
         description=goal.description,
-        target_date=goal.target_date,
+        target_date=goal.target_date.isoformat(),
         motivation=goal.motivation,
         consequence=goal.consequence,
         success_metric=goal.success_metric,

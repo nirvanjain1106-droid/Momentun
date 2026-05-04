@@ -56,7 +56,7 @@ def test_user_data():
 
 
 @pytest_asyncio.fixture
-async def registered_user(async_client: AsyncClient, test_user_data: dict):
+async def registered_user(async_client: AsyncClient, test_user_data: dict):  # noqa: F811
     """Register a user via the API and return (user_data_dict, response_json)."""
     resp = await async_client.post("/api/v1/auth/register", json=test_user_data)
     assert resp.status_code == 201, f"Registration failed: {resp.text}"
@@ -64,7 +64,7 @@ async def registered_user(async_client: AsyncClient, test_user_data: dict):
 
 
 @pytest_asyncio.fixture
-async def authenticated_client(async_client: AsyncClient, test_user_data: dict):
+async def authenticated_client(async_client: AsyncClient, test_user_data: dict):  # noqa: F811
     """
     Register + login via the API, then set the Bearer header on the client.
     Returns (client_with_auth_header, user_response_json).
@@ -79,7 +79,7 @@ async def authenticated_client(async_client: AsyncClient, test_user_data: dict):
 
 
 @pytest_asyncio.fixture
-async def second_authenticated_client(async_client: AsyncClient):
+async def second_authenticated_client(async_client: AsyncClient):  # noqa: F811
     """
     A second authenticated user for IDOR / cross-user tests.
     Returns (client_with_auth, user_response_json).

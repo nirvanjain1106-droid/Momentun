@@ -4,7 +4,7 @@ import math
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
-from typing import Optional, Iterable
+from typing import Optional, Iterable, Any
 
 from app.core.timezone import get_user_today
 
@@ -143,8 +143,8 @@ async def get_weekly_insights(
     )
 
     return WeeklyInsightsResponse(
-        week_start_date=start_date,
-        week_end_date=end_date,
+        week_start_date=start_date.isoformat(),
+        week_end_date=end_date.isoformat(),
         tasks_scheduled=scheduled,
         tasks_completed=completed,
         completion_rate=completion_rate,
@@ -536,9 +536,9 @@ def _build_subject_trajectory(
     completed_by_subject = {subject: 0 for subject in subjects}
 
     for record in task_records:
-        subject = _infer_subject_label(record.title, goal)
-        if subject in completed_by_subject:
-            completed_by_subject[subject] += _progress_minutes(record)
+        inferred: Optional[str] = _infer_subject_label(record.title, goal)
+        if inferred and inferred in completed_by_subject:
+            completed_by_subject[inferred] += _progress_minutes(record)
 
     results: list[SubjectTrajectoryResponse] = []
     for subject in subjects:
@@ -584,7 +584,7 @@ def _build_weekly_breakdown(
         log = log_map.get(current)
         results.append(
             WeeklyDayInsightResponse(
-                log_date=current,
+                log_date=current.isoformat(),
                 weekday=current.strftime("%A"),
                 tasks_scheduled=log.tasks_scheduled or 0 if log else 0,
                 tasks_completed=log.tasks_completed or 0 if log else 0,
@@ -607,7 +607,7 @@ def _detect_day_of_week_avoidance(
         if record.status not in SUCCESS_STATUSES:
             bucket["failed"] += 1
 
-    candidate = None
+    candidate: Optional[dict[str, Any]] = None
     for weekday, data in stats.items():
         if data["total"] < PATTERN_MIN_SAMPLES["day_of_week_avoidance"]:
             continue
@@ -623,7 +623,7 @@ def _detect_day_of_week_avoidance(
     if not candidate:
         return None
 
-    weekday_name = DAY_NAMES[candidate["weekday"]]
+    weekday_name = DAY_NAMES[int(candidate["weekday"])]
     failure_pct = int(round(candidate["failure_rate"] * 100))
     return PatternResponse(
         pattern_type="day_of_week_avoidance",
@@ -641,16 +641,16 @@ def _detect_day_of_week_avoidance(
 def _detect_time_of_day_decay(
     task_records: list[TaskPerformanceRecord],
 ) -> Optional[PatternResponse]:
-    buckets = {
+    buckets: dict[str, dict[str, Any]] = {
         "after_9pm": {"threshold": 21 * 60, "label": "After 9 PM"},
         "after_7pm": {"threshold": 19 * 60, "label": "After 7 PM"},
     }
-    candidate = None
+    candidate: Optional[dict[str, Any]] = None
 
     for bucket in buckets.values():
         matching = [
             record for record in task_records
-            if _time_to_minutes(record.scheduled_start) >= bucket["threshold"]
+            if _time_to_minutes(record.scheduled_start) >= int(bucket["threshold"])
         ]
         if len(matching) < PATTERN_MIN_SAMPLES["time_of_day_decay"]:
             continue
@@ -797,7 +797,7 @@ def _detect_subject_avoidance(
         if record.status not in SUCCESS_STATUSES:
             bucket["failed"] += 1
 
-    candidate = None
+    candidate: Optional[dict[str, Any]] = None
     for label, data in labels.items():
         if data["total"] < PATTERN_MIN_SAMPLES["subject_avoidance"]:
             continue

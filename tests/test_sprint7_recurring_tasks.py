@@ -18,7 +18,6 @@ from app.services.recurring_task_service import (
     get_recurring_requirements,
     _validate_max_per_day
 )
-from tests.conftest import make_user, make_goal
 
 pytestmark = pytest.mark.asyncio
 

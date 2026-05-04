@@ -44,7 +44,7 @@ async def test_token_rotation_replay_detected(async_client: AsyncClient, test_db
     login_resp = await async_client.post("/api/v1/auth/login", json={
         "email": user.email, "password": "Password123!"
     })
-    stolen_refresh_token = login_resp.cookies.get("refresh_token")
+    stolen_refresh_token = login_resp.cookies.get("refresh_token") or ""
     
     # 1st Refresh (Valid Action)
     async_client.cookies.set("refresh_token", stolen_refresh_token)

@@ -87,11 +87,10 @@ class TestConcurrency:
         )
 
         # Count successes — allow some failures due to connection pooling
-        success_count = sum(
-            1
-            for r in results
-            if not isinstance(r, Exception) and r.status_code == 200
-        )
+        success_count = 0
+        for r in results:
+            if not isinstance(r, BaseException) and r.status_code == 200:
+                success_count += 1
         # At least 8 of 10 should succeed
         assert success_count >= 8, (
             f"Only {success_count}/10 concurrent requests succeeded"

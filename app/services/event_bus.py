@@ -10,7 +10,7 @@ MAX_CONNECTIONS_PER_USER = 3
 class EventBus:
     """In-memory pub/sub. Single-process only. Swap to Redis Streams in Sprint 6."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._subscribers: dict[str, list[asyncio.Queue]] = defaultdict(list)
         self._last_active: dict[int, float] = {}
 

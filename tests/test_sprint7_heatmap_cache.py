@@ -2,14 +2,12 @@
 Tests for Sprint 7 Heatmap and Insights Cache
 """
 
-import uuid
 from datetime import date, timedelta
 import pytest
 from httpx import AsyncClient
 
 from app.models.goal import DailyLog
 from app.services.insights_service import get_heatmap
-from tests.conftest import make_user
 
 pytestmark = pytest.mark.asyncio
 

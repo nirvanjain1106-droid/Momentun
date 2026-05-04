@@ -18,6 +18,7 @@ import app.models  # noqa: F401
 config = context.config
 
 # Override sqlalchemy.url with our dynamic URL (sync driver for Alembic)
+assert settings.DATABASE_URL_SYNC is not None
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL_SYNC)
 
 # Setup logging from alembic.ini

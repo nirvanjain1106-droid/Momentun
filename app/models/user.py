@@ -37,7 +37,6 @@ class User(Base):
     )
     city: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     state: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    timezone: Mapped[str] = mapped_column(String(50), nullable=False, default="Asia/Kolkata")
     locale: Mapped[str] = mapped_column(String(10), nullable=False, default="en-IN")
     user_type: Mapped[str] = mapped_column(
         String(30),

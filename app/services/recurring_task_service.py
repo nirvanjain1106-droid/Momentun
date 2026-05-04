@@ -59,7 +59,7 @@ async def _get_active_rules(
             )
         )
     )
-    return result.scalars().all()
+    return list(result.scalars().all())
 
 
 async def get_recurring_requirements(

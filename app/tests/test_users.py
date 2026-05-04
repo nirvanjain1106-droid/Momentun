@@ -9,7 +9,6 @@ Endpoints:
 Note: CurrentUser is sufficient for /users/me (no onboarding gate).
 """
 
-import uuid
 
 import pytest
 from httpx import AsyncClient

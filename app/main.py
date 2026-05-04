@@ -5,13 +5,11 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
-from sqlalchemy import text
 from slowapi.errors import RateLimitExceeded
 
 from slowapi import _rate_limit_exceeded_handler
 
 from app.config import settings
-from app.database import get_db
 from app.core.logging import configure_logging
 from app.core.rate_limit import limiter
 from app.core.middleware import RequestIDMiddleware, SecurityHeadersMiddleware, RequestSizeLimitMiddleware
@@ -74,7 +72,7 @@ app.add_middleware(RequestIDMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestSizeLimitMiddleware)
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 # SlowAPIMiddleware removed — it extends BaseHTTPMiddleware which causes
 # RuntimeError in async tests. The exception handler above is sufficient.
 

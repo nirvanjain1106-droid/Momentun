@@ -137,7 +137,7 @@ async def morning_checkin(
 
     return MorningCheckinResponse(
         log_id=log.id,
-        log_date=log.log_date,
+        log_date=log.log_date.isoformat(),
         morning_energy=data.morning_energy,
         yesterday_rating=data.yesterday_rating,
         surprise_event=data.surprise_event,
@@ -270,7 +270,7 @@ async def evening_review(
 
     return EveningReviewResponse(
         log_id=log.id,
-        log_date=log.log_date,
+        log_date=log.log_date.isoformat(),
         tasks_scheduled=tasks_scheduled,
         tasks_completed=tasks_completed,
         completion_rate=round(completion_rate, 3),
@@ -332,7 +332,7 @@ async def _get_active_tasks_for_schedule(
             )
         )
     )
-    return result.scalars().all()
+    return list(result.scalars().all())
 
 
 def _determine_day_type_from_checkin(

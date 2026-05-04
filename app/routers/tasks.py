@@ -203,7 +203,7 @@ async def get_parked_tasks(
         description="If true, only return tasks parked >14 days",
     ),
 ) -> ParkedTasksListResponse:
-    return await task_service.get_parked_tasks(current_user.id, db, stale_only=stale)
+    return await task_service.get_parked_tasks(current_user.id, db, stale_only=stale or False)
 
 
 @router.get(

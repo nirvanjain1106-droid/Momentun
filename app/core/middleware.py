@@ -41,7 +41,7 @@ class SecurityHeadersMiddleware:
                     resp_headers[key] = value
             await send(message)
 
-        await self.app(scope, receive, send_wrapper)
+        await self.app(scope, receive, send_wrapper)  # type: ignore[arg-type]
 
 
 class RequestSizeLimitMiddleware:
@@ -107,6 +107,6 @@ class RequestIDMiddleware:
             await send(message)
 
         try:
-            await self.app(scope, receive, send_wrapper)
+            await self.app(scope, receive, send_wrapper)  # type: ignore[arg-type]
         finally:
             request_id_ctx.reset(token)

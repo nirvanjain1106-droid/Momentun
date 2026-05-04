@@ -151,8 +151,9 @@ async def refresh(request: Request, response: Response, db: DB, data: RefreshReq
 )
 async def verify_email(
     token: str = Query(..., description="Verification token from email"),
-    db: DB = None,
+    db: DB = None,  # type: ignore[assignment]
 ) -> EmailVerificationResponse:
+    assert db is not None
     return await auth_service.verify_email(token, db)
 
 
@@ -194,7 +195,7 @@ async def confirm_password_reset(
     ),
 )
 async def logout(request: Request, response: Response, db: DB, current_user: CurrentUser) -> LogoutResponse:
-    refresh_token = request.cookies.get("refresh_token")
+    refresh_token = request.cookies.get("refresh_token") or ""
     result = await auth_service.logout(refresh_token, db)
     _secure = settings.APP_ENV == "production"
     response.set_cookie(

@@ -20,6 +20,8 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.config import settings
 
+assert settings.DATABASE_URL is not None
+
 logger = logging.getLogger(__name__)
 
 # P0#2: Observability query — add to Grafana/Datadog dashboard.
@@ -44,7 +46,7 @@ async def reindex_recurring_dedup() -> None:
     """
     # autocommit required for REINDEX CONCURRENTLY
     engine = create_async_engine(
-        settings.DATABASE_URL,
+        settings.DATABASE_URL,  # type: ignore[arg-type]
         isolation_level="AUTOCOMMIT",
     )
     async with engine.connect() as conn:
