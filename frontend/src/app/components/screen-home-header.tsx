@@ -28,7 +28,7 @@ import { Bell, Settings } from "lucide-react";
 /** Strip emoji and punctuation, return uppercase first letter for initials */
 function deriveInitial(name: string): string {
   // Remove common emoji via unicode range, then trim
-  const cleaned = name.replace(/[\u{1F000}-\u{1FFFF}]/gu, "").trim();
+  const cleaned = name.replace(/\p{Emoji_Presentation}/gu, "").trim();
   return cleaned.charAt(0).toUpperCase() || "A";
 }
 

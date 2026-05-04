@@ -13,7 +13,7 @@ from app.config import settings
 from app.database import get_db
 from app.core.logging import configure_logging
 from app.core.rate_limit import limiter
-from app.core.middleware import RequestIDMiddleware
+from app.core.middleware import RequestIDMiddleware, SecurityHeadersMiddleware, RequestSizeLimitMiddleware
 from app.routers import auth, onboarding, schedule, checkin, insights, goals, tasks, users, sse, health
 from app.routers.health import _cache_column_check
 from app.routers.recurring_rules import router as recurring_router
@@ -62,13 +62,15 @@ app = FastAPI(
         "Momentum API — AI-powered adaptive scheduling that learns "
         "your behaviour patterns and adjusts your daily plan automatically."
     ),
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url="/docs" if settings.APP_ENV != "production" else None,
+    redoc_url="/redoc" if settings.APP_ENV != "production" else None,
     lifespan=lifespan,
 )
 
 # ── Middleware (order matters — outermost first) ─────────────
 app.add_middleware(RequestIDMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(RequestSizeLimitMiddleware)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # SlowAPIMiddleware removed — it extends BaseHTTPMiddleware which causes

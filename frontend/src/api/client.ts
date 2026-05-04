@@ -10,6 +10,11 @@ export const client = axios.create({
   },
 });
 
+// ── Token management ──────────────────────────────────────────
+// Access tokens are delivered and consumed exclusively via httpOnly
+// cookies. The only reason we keep a setter is so the authStore
+// hydrate() path can acknowledge a successful silent refresh
+// without needing the actual token value.
 let accessToken: string | null = null;
 export const setAccessToken = (token: string | null) => {
   accessToken = token;
@@ -21,12 +26,12 @@ let failedQueue: Array<{
   reject: (reason?: unknown) => void;
 }> = [];
 
-const processQueue = (error: AxiosError | null, token: string | null = null) => {
+const processQueue = (error: AxiosError | null) => {
   failedQueue.forEach((prom) => {
     if (error) {
       prom.reject(error);
     } else {
-      prom.resolve(token);
+      prom.resolve();
     }
   });
   failedQueue = [];
@@ -38,12 +43,9 @@ declare module 'axios' {
   }
 }
 
-client.interceptors.request.use((config) => {
-  if (accessToken && config.url !== '/auth/refresh') {
-    config.headers.Authorization = `Bearer ${accessToken}`;
-  }
-  return config;
-});
+// NOTE: No request interceptor injecting Authorization headers.
+// Authentication is cookie-based — the browser sends httpOnly
+// cookies automatically with every request (withCredentials: true).
 
 client.interceptors.response.use(
   (response) => {
@@ -87,9 +89,9 @@ client.interceptors.response.use(
       isRefreshing = true;
 
       try {
-        const refreshResponse = await client.post('/auth/refresh');
-        const newToken = refreshResponse.data.access_token;
-        setAccessToken(newToken);
+        // Cookie-based refresh — the server reads refresh_token from
+        // the httpOnly cookie and sets a new access_token cookie.
+        await client.post('/auth/refresh');
         
         processQueue(null);
         return client(originalRequest);
@@ -107,3 +109,4 @@ client.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
