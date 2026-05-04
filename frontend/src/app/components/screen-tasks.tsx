@@ -40,8 +40,10 @@ import type { AppIconDef, AvatarDef } from "./molecule-card-task";
 function StatusBar() {
   return (
     <div
+      className="glass-header"
       aria-hidden="true"
       style={{
+        position:       "relative",
         height:         "54px",
         flexShrink:     0,
         display:        "flex",
@@ -96,7 +98,9 @@ function StatusBar() {
 function TasksHeader() {
   return (
     <div
+      className="glass-header glass-shine"
       style={{
+        position:       "relative",
         height:         "56px",
         flexShrink:     0,
         display:        "flex",
@@ -208,7 +212,9 @@ const CALENDAR_DAYS: CalDay[] = [
 function CalendarStrip() {
   return (
     <div
+      className="glass-surface glass-shine"
       style={{
+        position:   "relative",
         height:     "80px",
         flexShrink: 0,
         padding:    "0 16px",

@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useAuthStore } from "../../stores/authStore";
 import {
   ArrowLeft, Share2, Clock, CheckCircle2,
   Target, Calendar, Trophy,
@@ -78,7 +79,9 @@ function NavHeader({ onBack, onShare }: {
   onShare?: () => void;
 }) {
   return (
-    <div style={{
+    <div
+      className="glass-header glass-shine"
+      style={{
       height: "56px", flexShrink: 0,
       display: "flex", alignItems: "center",
       justifyContent: "space-between",
@@ -215,7 +218,7 @@ function HeroCard() {
             color:         "var(--text-on-accent)",   // #FFFFFF on coral bg
             letterSpacing: "-0.2px",
             position:      "relative",
-          }}>Amazing week, Alex! 🎉</span>
+          }}>Amazing week, {useAuthStore.getState().userName || 'there'}! 🎉</span>
 
           {/* Subtitle: 14px Regular rgba(255,255,255,0.85) */}
           <span style={{

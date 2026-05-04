@@ -8,7 +8,7 @@ export interface ProfileScreenProps {
 interface UserProfile {
   name: string;
   email: string;
-  stats: {
+  stats?: {
     daysActive: number;
     goalsCompleted: number;
     avgFocusTime: string;
@@ -27,7 +27,11 @@ export function ProfileScreen({ navigate }: ProfileScreenProps) {
     async function loadData() {
       try {
         const data = await getMe();
-        setProfile(data as UserProfile);
+        setProfile({
+          name: data.name,
+          email: data.email,
+          stats: (data as any).stats ?? { daysActive: 0, goalsCompleted: 0, avgFocusTime: '0h' },
+        });
       } catch (err) {
         console.error("Failed to load profile", err);
       } finally {
@@ -129,15 +133,15 @@ export function ProfileScreen({ navigate }: ProfileScreenProps) {
         {/* Stats Row */}
         <div className="flex gap-3 w-full">
           <div className="flex-1 bg-white border border-[#EDE5DE] rounded-[16px] p-4 flex flex-col items-center justify-center shadow-[0_2px_8px_rgba(26,18,16,0.06)]">
-            <span className="text-[22px] font-bold text-[#1A1210] leading-none mb-1">{profile.stats.daysActive}</span>
+            <span className="text-[22px] font-bold text-[#1A1210] leading-none mb-1">{profile.stats?.daysActive ?? 0}</span>
             <span className="text-[12px] text-[#9C8880] text-center font-medium">Days Active</span>
           </div>
           <div className="flex-1 bg-white border border-[#EDE5DE] rounded-[16px] p-4 flex flex-col items-center justify-center shadow-[0_2px_8px_rgba(26,18,16,0.06)]">
-            <span className="text-[22px] font-bold text-[#1A1210] leading-none mb-1">{profile.stats.goalsCompleted}</span>
+            <span className="text-[22px] font-bold text-[#1A1210] leading-none mb-1">{profile.stats?.goalsCompleted ?? 0}</span>
             <span className="text-[12px] text-[#9C8880] text-center font-medium">Completed</span>
           </div>
           <div className="flex-1 bg-white border border-[#EDE5DE] rounded-[16px] p-4 flex flex-col items-center justify-center shadow-[0_2px_8px_rgba(26,18,16,0.06)]">
-            <span className="text-[22px] font-bold text-[#1A1210] leading-none mb-1">{profile.stats.avgFocusTime}</span>
+            <span className="text-[22px] font-bold text-[#1A1210] leading-none mb-1">{profile.stats?.avgFocusTime ?? '0h'}</span>
             <span className="text-[12px] text-[#9C8880] text-center font-medium">Avg Focus</span>
           </div>
         </div>

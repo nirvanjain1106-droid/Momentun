@@ -54,8 +54,10 @@ export function HomeHeader({
 
   return (
     <div
+      className="glass-header glass-shine"
       style={{
         // Frame
+        position:       "relative",
         width:          "100%",
         height:         "56px",
         flexShrink:     0,

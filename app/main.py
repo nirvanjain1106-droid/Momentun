@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 from sqlalchemy import text
 from slowapi.errors import RateLimitExceeded
 
@@ -14,6 +15,7 @@ from app.database import get_db
 from app.core.logging import configure_logging
 from app.core.rate_limit import limiter
 from app.core.middleware import RequestIDMiddleware, SecurityHeadersMiddleware, RequestSizeLimitMiddleware
+from app.exceptions import AppException
 from app.routers import auth, onboarding, schedule, checkin, insights, goals, tasks, users, sse, health
 from app.routers.health import _cache_column_check
 from app.routers.recurring_rules import router as recurring_router
@@ -132,6 +134,48 @@ async def root():
     })
 
 
+# ── Structured AppException handler ──────────────────────────
+@app.exception_handler(AppException)
+async def app_exception_handler(request: Request, exc: AppException) -> JSONResponse:
+    logger.error(
+        "app_exception",
+        extra={
+            "code": exc.code,
+            "message": exc.message,
+            "path": str(request.url.path),
+            "status_code": exc.status_code,
+        },
+    )
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": {
+                "code": exc.code,
+                "message": exc.message,
+                "details": exc.details,
+            }
+        },
+    )
+
+
+# ── Pydantic / request-body validation handler ───────────────
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error": {
+                "code": "VALIDATION_ERROR",
+                "message": "Request validation failed",
+                "details": exc.errors(),
+            }
+        },
+    )
+
+
+# ── Catch-all 500 handler with manual CORS headers ───────────
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """
@@ -158,6 +202,11 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 
     return JSONResponse(
         status_code=500,
-        content={"detail": "Internal server error"},
+        content={
+            "error": {
+                "code": "INTERNAL_ERROR",
+                "message": "An unexpected error occurred",
+            }
+        },
         headers=headers,
     )

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowLeft, X } from 'lucide-react';
 import { scheduleApi } from '../../api/scheduleApi';
+import { useAuthStore } from '../../stores/authStore';
 
 interface Props {
   navigate: (screen: string) => void;
@@ -89,7 +90,7 @@ export default function ScreenMorningCheckin({ navigate }: Props) {
     <div className="flex flex-col h-full overflow-y-auto px-4 pb-8">
       <div className="pt-[60px] pb-8 text-center flex-shrink-0">
         <div className="text-[15px] font-medium text-[#6B5C54] mb-1">{greeting}</div>
-        <div className="text-[28px] font-bold text-[#1A1210]">Alex</div>
+        <div className="text-[28px] font-bold text-[#1A1210]">{useAuthStore.getState().userName || 'there'}</div>
         <div className="text-[17px] text-[#6B5C54] mt-2">How are you feeling today?</div>
       </div>
 

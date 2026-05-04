@@ -59,7 +59,7 @@ export function BottomBar({
 
   return (
     <nav
-      className={`flex items-start justify-between ${className}`}
+      className={`flex items-start justify-between glass-nav glass-shine ${className}`}
       aria-label="Main navigation"
       style={{
         width:        "390px",

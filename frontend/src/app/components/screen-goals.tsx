@@ -74,7 +74,9 @@ function StatusBar() {
 function GoalsHeader({ onNewGoal }: { onNewGoal?: () => void }) {
   return (
     <div
+      className="glass-header glass-shine"
       style={{
+        position:       "relative",
         height:         "56px",
         flexShrink:     0,
         display:        "flex",

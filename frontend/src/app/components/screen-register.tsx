@@ -50,7 +50,7 @@ export function RegisterScreen({ navigate }: RegisterScreenProps) {
     setLoading(true);
 
     try {
-      await register(name, email, password);
+      await register({ name, email, password });
       navigate('onboarding');
     } catch (err: any) {
       setError(err.message || 'Registration failed. Please try again.');

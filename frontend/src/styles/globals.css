@@ -1,3 +1,221 @@
+:root {
+/* ── Liquid Glass Tokens ─────────────────── */
+
+/* Dark mode glass (default when glass is on) */
+--glass-dark-bg:         rgba(13, 11, 10, 0.55);
+--glass-dark-border:     rgba(255, 255, 255, 0.10);
+--glass-dark-shine:      rgba(255, 255, 255, 0.06);
+--glass-dark-shadow:     0 8px 32px rgba(0,0,0,0.40),
+                         inset 0 1px 0 rgba(255,255,255,0.08);
+--glass-dark-blur:       blur(24px) saturate(180%);
+
+/* Light mode glass */
+--glass-light-bg:        rgba(255, 255, 255, 0.62);
+--glass-light-border:    rgba(237, 229, 222, 0.75);
+--glass-light-shine:     rgba(255, 255, 255, 0.90);
+--glass-light-shadow:    0 8px 32px rgba(26,18,16,0.12),
+                         inset 0 1px 0 rgba(255,255,255,0.95);
+--glass-light-blur:      blur(20px) saturate(160%);
+
+/* Accent-tinted glass (nav active states) */
+--glass-accent-bg:       rgba(201, 95, 63, 0.15);
+--glass-accent-border:   rgba(201, 95, 63, 0.25);
+
+/* Transition */
+--glass-transition:      background 400ms ease,
+                         backdrop-filter 400ms ease,
+                         border-color 400ms ease;
+}
+
+/* ── Base glass class ────────────────────── */
+.glass-surface {
+  transition: var(--glass-transition);
+}
+
+/* Dark mode glass surface */
+body.glass-mode.dark-mode .glass-surface,
+body.glass-mode:not(.light-mode) .glass-surface {
+  background: var(--glass-dark-bg) !important;
+  backdrop-filter: var(--glass-dark-blur);
+  -webkit-backdrop-filter: var(--glass-dark-blur);
+  border-color: var(--glass-dark-border) !important;
+  box-shadow: var(--glass-dark-shadow);
+}
+
+/* Light mode glass surface */
+body.glass-mode.light-mode .glass-surface {
+  background: var(--glass-light-bg) !important;
+  backdrop-filter: var(--glass-light-blur);
+  -webkit-backdrop-filter: var(--glass-light-blur);
+  border-color: var(--glass-light-border) !important;
+  box-shadow: var(--glass-light-shadow);
+}
+
+/* ── Nav bar glass ───────────────────────── */
+.glass-nav {
+  transition: var(--glass-transition);
+}
+
+body.glass-mode .glass-nav {
+  border-top-color: transparent !important;
+}
+
+body.glass-mode.dark-mode .glass-nav,
+body.glass-mode:not(.light-mode) .glass-nav {
+  background: rgba(13, 11, 10, 0.50) !important;
+  backdrop-filter: blur(30px) saturate(200%);
+  -webkit-backdrop-filter: blur(30px) saturate(200%);
+  border-top: 0.5px solid rgba(255,255,255,0.08) !important;
+  box-shadow: 0 -1px 0 rgba(255,255,255,0.05),
+              0 -8px 24px rgba(0,0,0,0.30);
+}
+
+body.glass-mode.light-mode .glass-nav {
+  background: rgba(255,255,255,0.65) !important;
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  border-top: 0.5px solid rgba(237,229,222,0.70) !important;
+  box-shadow: 0 -1px 0 rgba(237,229,222,0.60),
+              0 -8px 24px rgba(26,18,16,0.08);
+}
+
+/* ── Header glass ────────────────────────── */
+.glass-header {
+  transition: var(--glass-transition);
+}
+
+body.glass-mode.dark-mode .glass-header,
+body.glass-mode:not(.light-mode) .glass-header {
+  background: rgba(13, 11, 10, 0.45) !important;
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-bottom: 0.5px solid rgba(255,255,255,0.06);
+}
+
+body.glass-mode.light-mode .glass-header {
+  background: rgba(250, 246, 242, 0.70) !important;
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  border-bottom: 0.5px solid rgba(237,229,222,0.60);
+}
+
+/* ── Modal/sheet glass ───────────────────── */
+.glass-modal {
+  transition: var(--glass-transition);
+}
+
+body.glass-mode.dark-mode .glass-modal,
+body.glass-mode:not(.light-mode) .glass-modal {
+  background: rgba(26, 22, 18, 0.75) !important;
+  backdrop-filter: blur(40px) saturate(200%);
+  -webkit-backdrop-filter: blur(40px) saturate(200%);
+  border: 1px solid rgba(255,255,255,0.10);
+}
+
+body.glass-mode.light-mode .glass-modal {
+  background: rgba(255, 255, 255, 0.80) !important;
+  backdrop-filter: blur(32px) saturate(160%);
+  -webkit-backdrop-filter: blur(32px) saturate(160%);
+  border: 1px solid rgba(237,229,222,0.80);
+}
+
+/* ── Tab pill glass ──────────────────────── */
+body.glass-mode.dark-mode .glass-pills,
+body.glass-mode:not(.light-mode) .glass-pills {
+  background: rgba(255,255,255,0.06) !important;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255,255,255,0.10) !important;
+}
+
+body.glass-mode.light-mode .glass-pills {
+  background: rgba(255,255,255,0.70) !important;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(237,229,222,0.75) !important;
+}
+
+/* ── Glass shine overlay (decorative) ───── */
+/* Add to nav/header elements as ::before pseudo */
+body.glass-mode .glass-shine::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 40%;
+  background: linear-gradient(
+    180deg,
+    rgba(255,255,255,0.08) 0%,
+    rgba(255,255,255,0.00) 100%
+  );
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* ── Smooth enable/disable animation ─────── */
+body.glass-entering .glass-surface,
+body.glass-entering .glass-nav,
+body.glass-entering .glass-header,
+body.glass-entering .glass-modal {
+  transition: all 600ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+body.glass-leaving .glass-surface,
+body.glass-leaving .glass-nav,
+body.glass-leaving .glass-header,
+body.glass-leaving .glass-modal {
+  transition: all 400ms ease-out;
+}
+
+/* Fallback when backdrop-filter unsupported */
+body.glass-mode.glass-no-blur .glass-surface {
+  background: rgba(26, 22, 18, 0.92) !important;
+  backdrop-filter: none !important;
+}
+
+body.glass-mode.glass-no-blur.light-mode .glass-surface {
+  background: rgba(250, 246, 242, 0.96) !important;
+}
+
+/* Reduced motion: disable shimmer animations */
+@media (prefers-reduced-motion: reduce) {
+  .glass-surface,
+  .glass-nav,
+  .glass-header,
+  .glass-modal {
+    transition: none !important;
+  }
+  
+  @keyframes glassShimmer {
+    0%, 100% { opacity: 0; }
+  }
+}
+
+@media (prefers-contrast: high) {
+  body.glass-mode .glass-surface,
+  body.glass-mode .glass-nav,
+  body.glass-mode .glass-header {
+    background: var(--surface-card) !important;
+    backdrop-filter: none !important;
+    border-color: var(--surface-border) !important;
+  }
+}
+
+@keyframes glassShimmer {
+  0% {
+    background-position: -200% -200%;
+    opacity: 0;
+  }
+  40% {
+    opacity: 1;
+  }
+  100% {
+    background-position: 200% 200%;
+    opacity: 0;
+  }
+}
+
 @keyframes spin {
   to { transform: rotate(360deg); }
 }

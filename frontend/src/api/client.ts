@@ -1,6 +1,7 @@
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import { useAuthStore } from '../stores/authStore';
 import { useUIStore } from '../stores/uiStore';
+import { debugLog, pushRequestEntry } from '../lib/debug';
 
 export const client = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1',
@@ -11,13 +12,12 @@ export const client = axios.create({
 });
 
 // ── Token management ──────────────────────────────────────────
-// Access tokens are delivered and consumed exclusively via httpOnly
 // cookies. The only reason we keep a setter is so the authStore
 // hydrate() path can acknowledge a successful silent refresh
 // without needing the actual token value.
-let accessToken: string | null = null;
-export const setAccessToken = (token: string | null) => {
-  accessToken = token;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export const setAccessToken = (_token: string | null) => {
+  /* no-op: auth is cookie-based; kept for API compat with authStore */
 };
 
 let isRefreshing = false;
@@ -40,15 +40,34 @@ const processQueue = (error: AxiosError | null) => {
 declare module 'axios' {
   export interface InternalAxiosRequestConfig {
     _retry?: boolean;
+    metadata?: { startTime: number };
   }
 }
 
-// NOTE: No request interceptor injecting Authorization headers.
-// Authentication is cookie-based — the browser sends httpOnly
-// cookies automatically with every request (withCredentials: true).
+// ── Request interceptor — debug timing ──────────────────────────────────────
+client.interceptors.request.use((config) => {
+  if (import.meta.env.DEV) {
+    debugLog('API', `→ ${config.method?.toUpperCase()} ${config.url}`);
+  }
+  config.metadata = { startTime: Date.now() };
+  return config;
+});
 
+// ── Response interceptors — debug logging + token refresh ───────────────────
 client.interceptors.response.use(
   (response) => {
+    // Debug logging
+    if (import.meta.env.DEV) {
+      const duration = Date.now() - (response.config.metadata?.startTime ?? Date.now());
+      debugLog('API', `← ${response.status} ${response.config.url} (${duration}ms)`);
+      pushRequestEntry({
+        method: response.config.method?.toUpperCase() ?? '?',
+        url: response.config.url ?? '?',
+        status: response.status,
+        durationMs: duration,
+        timestamp: Date.now(),
+      });
+    }
     if (useUIStore.getState().isOffline) {
       useUIStore.getState().setOffline(false);
     }
@@ -99,7 +118,8 @@ client.interceptors.response.use(
         processQueue(refreshError as AxiosError);
         
         try { await useAuthStore.getState().logout(); } catch { /* best-effort logout API clearing */ }
-        window.location.href = '/login';
+        // No hard navigation — App.tsx reacts to userId becoming null
+        // and automatically renders the login screen via state.
         return Promise.reject(refreshError);
       } finally {
         isRefreshing = false;

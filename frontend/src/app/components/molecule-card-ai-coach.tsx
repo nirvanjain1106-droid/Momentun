@@ -1,4 +1,3 @@
-import React from "react";
 import { Star, Sparkles } from "lucide-react";
 import { PrimaryButton } from "./atom-button-primary";
 
@@ -40,9 +39,10 @@ export function AICoachCard({
 }: AICoachCardProps) {
   return (
     <div
-      className={`w-full ${className}`}
+      className={`w-full glass-surface glass-shine ${className}`}
       style={{
         // Frame
+        position:      "relative",                     // Required for glass-shine
         borderRadius:  "var(--radius-card)",           // 16px
         background:    "var(--surface-card)",           // #FFFFFF
         border:        "1px solid var(--surface-border)", // #EDE5DE
@@ -57,7 +57,7 @@ export function AICoachCard({
       }}
     >
 
-      {/* ── Left: Mascot placeholder (72 × 72) ─────────────���─────────────── */}
+      {/* ── Left: Mascot placeholder (72 × 72) ──────────────────────────── */}
       <div
         aria-label="AI Coach mascot placeholder"
         style={{

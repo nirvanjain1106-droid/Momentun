@@ -1,11 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   ArrowLeft, ChevronRight, User, Lock, Mail, Link as LinkIcon, 
   Bell, BarChart2, Clock, Target, Flame, Timer, Coffee, Moon, 
   Volume2, Palette, Globe, Calendar, Sparkles, Cpu, Download, 
   Shield, FileText, Trash2, HelpCircle, MessageCircle, Star, Info, Check
 } from 'lucide-react';
-import { userApi } from '../../api/userApi';
+import { userApi, logout } from '../../api/userApi';
+import { useGlassMode } from '../../lib/useGlassMode';
 
 interface Props {
   navigate: (screen: string) => void;
@@ -34,6 +35,7 @@ type Prefs = typeof DEFAULT_PREFS;
 export default function ScreenSettings({ navigate }: Props) {
   const [email, setEmail] = useState<string>('');
   const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
+  const { glassEnabled, setGlass } = useGlassMode();
   
   // Toast State
   const [toast, setToast] = useState<{ message: string; visible: boolean }>({ message: '', visible: false });
@@ -70,7 +72,7 @@ export default function ScreenSettings({ navigate }: Props) {
 
   useEffect(() => {
     // Load email
-    userApi.getMe().then((data: any) => {
+    userApi.getProfile().then((data: any) => {
       if (data && data.email) {
         setEmail(data.email);
       }
@@ -98,11 +100,6 @@ export default function ScreenSettings({ navigate }: Props) {
     const newPrefs = { ...prefs, [key]: value };
     setPrefs(newPrefs);
     localStorage.setItem('momentum_preferences', JSON.stringify(newPrefs));
-    userApi.updatePreferences(newPrefs).then(() => {
-      // Optional: show a small toast for toggles if needed, but the spec says "show success toast if API call succeeds". 
-      // It might be too noisy for every toggle. We'll add it per spec.
-      // showToast('Preferences updated');
-    });
   };
 
   const handleToggle = (key: keyof Prefs) => {
@@ -154,7 +151,7 @@ export default function ScreenSettings({ navigate }: Props) {
       confirmText: 'Sign Out',
       onConfirm: async () => {
         setModal(prev => ({ ...prev, open: false }));
-        await userApi.logout();
+        await logout();
         navigate('login');
       }
     });
@@ -328,6 +325,11 @@ export default function ScreenSettings({ navigate }: Props) {
               icon={Calendar} iconColor="#B8472A" label="Date Format"
               rightContent={<div className="flex items-center gap-1"><span className="text-[13px] text-[#9C8880]">{prefs.dateFormat}</span><ChevronRight size={16} color="#9C8880" /></div>}
               onClick={() => openSheet('Date Format', ['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD'], 'dateFormat')}
+            />
+            <SectionRow 
+              icon={Sparkles} iconColor="#B8472A" label="Liquid Glass Mode" sublabel="Translucent blur effects"
+              rightContent={<Toggle isOn={glassEnabled} />}
+              onClick={() => setGlass(!glassEnabled)}
               isLast={true}
             />
           </div>

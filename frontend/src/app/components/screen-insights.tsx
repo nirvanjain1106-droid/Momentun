@@ -56,7 +56,10 @@ function StatusBar() {
 // 2. Screen header
 function InsightsHeader() {
   return (
-    <div style={{
+    <div
+      className="glass-header glass-shine"
+      style={{
+      position: "relative",
       height: "56px", flexShrink: 0,
       display: "flex", alignItems: "center", justifyContent: "space-between",
       padding: "0 16px",

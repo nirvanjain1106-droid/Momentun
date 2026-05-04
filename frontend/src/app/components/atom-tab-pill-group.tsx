@@ -57,7 +57,7 @@ export function PillGroup({
 
   return (
     <div
-      className={`inline-flex items-center relative ${className}`}
+      className={`inline-flex items-center relative glass-surface glass-shine ${className}`}
       style={{
         background:   "var(--surface-card)",         // #FFFFFF
         border:       "1px solid var(--surface-border)", // #EDE5DE

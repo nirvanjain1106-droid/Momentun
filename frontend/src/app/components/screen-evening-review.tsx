@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { ArrowLeft, X, Moon, ArrowRight, Clock, Trash2 } from 'lucide-react';
 import * as scheduleApi from '../../api/scheduleApi';
 import * as insightsApi from '../../api/insightsApi';
+import { useAuthStore } from '../../stores/authStore';
 
 interface Props {
   navigate: (screen: string) => void;
@@ -102,7 +103,7 @@ export default function ScreenEveningReview({ navigate }: Props) {
     if (completionRate > 0.7) {
       heroCard = (
         <div className="bg-gradient-to-b from-[#D4795C] to-[#B8472A] rounded-[16px] p-5 shadow-[0_4px_12px_rgba(184,71,42,0.2)] mb-6 text-white">
-          <h2 className="text-[22px] font-bold mb-1">Great day, Alex! 🎉</h2>
+          <h2 className="text-[22px] font-bold mb-1">Great day, {useAuthStore.getState().userName || 'there'}! 🎉</h2>
           <p className="text-[15px] text-white/85">You completed {todayStats?.tasksDone || 0} of {todayStats?.tasksTotal || 0} tasks today</p>
         </div>
       );
@@ -476,7 +477,7 @@ export default function ScreenEveningReview({ navigate }: Props) {
 
   const renderStep4 = () => {
     // Determine dynamic headline
-    let headline = "Solid day, Alex! 💪";
+    let headline = `Solid day, ${useAuthStore.getState().userName || 'there'}! 💪`;
     if (priorities.every(p => p.completed)) {
       headline = "You crushed it today! 🏆";
     } else if (priorities.filter(p => p.completed).length === 0) {

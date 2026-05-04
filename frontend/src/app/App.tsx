@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
+import { ErrorBoundary } from "../components/ErrorBoundary";
+import { DebugPanel } from "../components/DebugPanel";
 import { useAuthStore } from "../stores/authStore";
 
 // ─── Auth / Nav screens (named exports) ──────────────────────────────────────
@@ -68,7 +70,7 @@ const SCREEN_TO_TAB: Partial<Record<Screen, BottomBarTab>> = {
 //  APP COMPONENT — the centralized router with real auth
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function App() {
-  const { userId, isHydrated, isBootRefreshing, onboardingComplete, hydrate } = useAuthStore();
+  const { userId, userName, isHydrated, isBootRefreshing, onboardingComplete, hydrate } = useAuthStore();
   const [screen, setScreen]         = useState<Screen>("login");
   const [goalDetailId, setGoalDetailId] = useState("goal-1");
 
@@ -177,7 +179,7 @@ export default function App() {
           <ScreenHome
             activeTab={activeTab ?? "Home"}
             onTabChange={handleTabChange}
-            header={<HomeHeader />}
+            header={<HomeHeader name={userName ? `${userName} 👋` : undefined} />}
           >
             <HomeContent />
           </ScreenHome>
@@ -263,7 +265,10 @@ export default function App() {
         background:     "var(--bg-base)",
       }}
     >
-      {renderScreen()}
+      <ErrorBoundary key={screen}>
+        {renderScreen()}
+      </ErrorBoundary>
+      <DebugPanel currentScreen={screen} />
     </div>
   );
 }
