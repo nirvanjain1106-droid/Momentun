@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { ArrowLeft, X } from 'lucide-react';
 import { scheduleApi } from '../../api/scheduleApi';
 import { useAuthStore } from '../../stores/authStore';

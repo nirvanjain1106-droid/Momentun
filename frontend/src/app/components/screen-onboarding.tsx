@@ -1,4 +1,4 @@
-import React, { useState, TouchEvent } from 'react';
+import { useState, type TouchEvent } from 'react';
 import { PrimaryButton } from './atom-button-primary';
 
 export interface OnboardingScreenProps {

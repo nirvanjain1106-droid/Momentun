@@ -1,4 +1,4 @@
-import React from "react";
+
 import { QuickActionChip } from "./molecule-chip-quick-action";
 
 // ─────────────────────────────────────────────────────────────────────────────

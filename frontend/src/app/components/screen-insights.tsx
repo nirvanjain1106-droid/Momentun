@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { Info, Flame, Zap } from "lucide-react";
 import { DeltaBadge } from "./atom-badge-delta";
 import {
@@ -299,7 +299,6 @@ function FocusTimeCard() {
             x="Thu" y={5.8}
             r={3}
             fill="#C4603A" stroke="#FFFFFF" strokeWidth={1.5}
-            isFront
           />
         </AreaChart>
       </ResponsiveContainer>

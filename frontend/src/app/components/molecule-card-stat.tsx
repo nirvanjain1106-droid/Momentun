@@ -1,4 +1,4 @@
-import React from "react";
+
 import { CheckCircle2, Clock, Zap } from "lucide-react";
 import { DeltaBadge } from "./atom-badge-delta";
 

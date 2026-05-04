@@ -1,5 +1,6 @@
 import logging
 import asyncio
+import json
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -161,13 +162,15 @@ async def app_exception_handler(request: Request, exc: AppException) -> JSONResp
 async def validation_exception_handler(
     request: Request, exc: RequestValidationError
 ) -> JSONResponse:
+    safe_errors = json.loads(json.dumps(exc.errors(), default=str))
     return JSONResponse(
         status_code=422,
         content={
+            "detail": safe_errors,
             "error": {
                 "code": "VALIDATION_ERROR",
                 "message": "Request validation failed",
-                "details": exc.errors(),
+                "details": safe_errors,
             }
         },
     )

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { Target, BarChart2, Sparkles } from "lucide-react";
 import { PrimaryButton } from "./atom-button-primary";
 import { SecondaryButton } from "./atom-button-secondary";

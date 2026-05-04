@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ChevronLeft, Edit2, CheckCircle2, Circle } from 'lucide-react';
 import { PrimaryButton } from './atom-button-primary';
 import { TaskCard, CATEGORY_COLORS } from './molecule-card-task';
