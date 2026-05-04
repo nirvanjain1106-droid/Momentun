@@ -4,6 +4,7 @@ import { PrimaryButton } from './atom-button-primary';
 import { TaskCard, CATEGORY_COLORS } from './molecule-card-task';
 import { getGoalById } from '../../api/scheduleApi';
 import type { GoalDetail } from '../../api/scheduleApi';
+import { getApiErrorMessage } from '../../lib/errorHandler';
 
 export interface GoalDetailScreenProps {
   navigate: (screen: string) => void;
@@ -13,6 +14,7 @@ export interface GoalDetailScreenProps {
 export function GoalDetailScreen({ navigate, goalId }: GoalDetailScreenProps) {
   const [goal, setGoal] = useState<GoalDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchGoal = async () => {
@@ -22,6 +24,7 @@ export function GoalDetailScreen({ navigate, goalId }: GoalDetailScreenProps) {
         setGoal(data);
       } catch (error) {
         console.error("Failed to fetch goal:", error);
+        setError(getApiErrorMessage(error, 'goals'));
       } finally {
         setLoading(false);
       }
@@ -29,10 +32,27 @@ export function GoalDetailScreen({ navigate, goalId }: GoalDetailScreenProps) {
     fetchGoal();
   }, [goalId]);
 
-  if (loading || !goal) {
+  if (loading) {
     return (
       <div className="flex-1 w-full h-full min-h-screen bg-[#FAF6F2] flex items-center justify-center">
         <div className="w-8 h-8 rounded-full border-4 border-t-accent-primary border-r-transparent border-b-transparent border-l-transparent animate-spin" />
+      </div>
+    );
+  }
+
+  if (error || !goal) {
+    return (
+      <div className="flex-1 w-full h-full min-h-screen bg-[#FAF6F2] flex flex-col items-center justify-center px-6 gap-4">
+        <div className="text-[#C0392B] text-[14px] text-center bg-[#FDF2F1] p-4 rounded-lg border border-[#F5C2C0] max-w-[340px]">
+          {error || 'Unable to load this goal.'}
+        </div>
+        <button
+          type="button"
+          onClick={() => navigate('goals')}
+          className="text-[#B8472A] text-[14px] font-semibold hover:underline"
+        >
+          ← Back to Goals
+        </button>
       </div>
     );
   }

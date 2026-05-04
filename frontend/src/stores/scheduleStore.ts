@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { idbCache } from '../lib/idbCache';
+import { getApiErrorMessage } from '../lib/errorHandler';
 import {
   scheduleApi,
   type AdHocTaskPayload,
@@ -120,7 +121,7 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
 
       const msg = error instanceof Error && error.name === 'AbortError'
         ? 'Request timed out. Please try again.'
-        : getErrorMessage(error, 'Failed to fetch schedule');
+        : getApiErrorMessage(error, 'tasks');
 
       set({ isLoading: false, error: msg });
     }
@@ -137,7 +138,7 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
     } catch (error: unknown) {
       set({
         isParkedLoading: false,
-        error: getErrorMessage(error, 'Failed to load Later tasks'),
+        error: getApiErrorMessage(error, 'tasks'),
       });
     }
   },
@@ -254,7 +255,7 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
       }
 
       get().rollbackPatch(taskId);
-      set({ error: `Failed to complete task: ${getErrorMessage(error, 'Network error')}` });
+      set({ error: `Failed to complete task: ${getApiErrorMessage(error, 'tasks')}` });
     }
   },
 
@@ -335,7 +336,7 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
       }
 
       get().rollbackPatch(taskId);
-      set({ error: `Failed to park task: ${getErrorMessage(error, 'Network error')}` });
+      set({ error: `Failed to park task: ${getApiErrorMessage(error, 'tasks')}` });
     }
   },
 
@@ -423,7 +424,7 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
       }
 
       get().rollbackPatch(taskId);
-      set({ error: `Failed to undo task action: ${getErrorMessage(error, 'Network error')}` });
+      set({ error: `Failed to undo task action: ${getApiErrorMessage(error, 'tasks')}` });
     }
   },
 
@@ -434,7 +435,7 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
       await Promise.allSettled([get().fetchSchedule(), get().fetchParkedTasks()]);
       return createdTask;
     } catch (error: unknown) {
-      set({ error: getErrorMessage(error, 'Failed to create task') });
+      set({ error: getApiErrorMessage(error, 'tasks') });
       throw error;
     }
   },
@@ -446,7 +447,7 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
       await Promise.allSettled([get().fetchSchedule(), get().fetchParkedTasks()]);
       return task;
     } catch (error: unknown) {
-      set({ error: getErrorMessage(error, 'Failed to add task to Later') });
+      set({ error: getApiErrorMessage(error, 'tasks') });
       throw error;
     }
   },
@@ -458,7 +459,7 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
       await Promise.allSettled([get().fetchSchedule(), get().fetchParkedTasks()]);
       return task;
     } catch (error: unknown) {
-      set({ error: getErrorMessage(error, 'Failed to reschedule task') });
+      set({ error: getApiErrorMessage(error, 'tasks') });
       throw error;
     }
   },

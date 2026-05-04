@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { client } from '../api/client';
 import { useUIStore } from './uiStore';
+import { getApiErrorMessage } from '../lib/errorHandler';
 
 type GoalStatus = 'active' | 'paused' | 'achieved' | 'abandoned';
 
@@ -44,10 +45,10 @@ export const useGoalStore = create<GoalState>((set, get) => ({
       const response = await client.get(url);
       // Guard: items may be undefined if the shape changes or the call races
       set({ goals: response.data?.items ?? [] });
-    } catch {
+    } catch (error) {
       // Don't rethrow — a toast is sufficient; rethrowing crashes GoalsPage
       set({ goals: [] });
-      useUIStore.getState().addToast({ type: 'error', message: 'Failed to load goals.' });
+      useUIStore.getState().addToast({ type: 'error', message: getApiErrorMessage(error, 'goals') });
     } finally {
       set({ isLoading: false });
     }
@@ -58,7 +59,7 @@ export const useGoalStore = create<GoalState>((set, get) => ({
       const response = await client.post('/goals', data);
       set((state) => ({ goals: [...state.goals, response.data] }));
     } catch (error) {
-      useUIStore.getState().addToast({ type: 'error', message: 'Failed to create goal.' });
+      useUIStore.getState().addToast({ type: 'error', message: getApiErrorMessage(error, 'goals') });
       throw error;
     }
   },
@@ -80,7 +81,7 @@ export const useGoalStore = create<GoalState>((set, get) => ({
            goals: state.goals.map((g) => (g.id === goalId ? previousTarget : g))
          }));
       }
-      useUIStore.getState().addToast({ type: 'error', message: 'Failed to update goal.' });
+      useUIStore.getState().addToast({ type: 'error', message: getApiErrorMessage(error, 'goals') });
       throw error;
     }
   },
@@ -96,7 +97,7 @@ export const useGoalStore = create<GoalState>((set, get) => ({
       await client.post(`/goals/${goalId}/pause`);
     } catch (error) {
       set({ goals: previousGoals });
-      useUIStore.getState().addToast({ type: 'error', message: 'Failed to pause goal.' });
+      useUIStore.getState().addToast({ type: 'error', message: getApiErrorMessage(error, 'goals') });
       throw error;
     }
   },
@@ -112,7 +113,7 @@ export const useGoalStore = create<GoalState>((set, get) => ({
       await client.post(`/goals/${goalId}/resume`);
     } catch (error) {
       set({ goals: previousGoals });
-      useUIStore.getState().addToast({ type: 'error', message: 'Check if you already have 3 active goals.' });
+      useUIStore.getState().addToast({ type: 'error', message: getApiErrorMessage(error, 'goals') });
       throw error;
     }
   },
@@ -128,7 +129,7 @@ export const useGoalStore = create<GoalState>((set, get) => ({
       await client.patch(`/goals/${goalId}/status`, { status: "achieved" });
     } catch (error) {
        set({ goals: previousGoals });
-       useUIStore.getState().addToast({ type: 'error', message: 'Failed to update goal status.' });
+       useUIStore.getState().addToast({ type: 'error', message: getApiErrorMessage(error, 'goals') });
        throw error;
     }
   },
@@ -144,7 +145,7 @@ export const useGoalStore = create<GoalState>((set, get) => ({
        await client.patch(`/goals/${goalId}/status`, { status: "abandoned" });
     } catch (error) {
        set({ goals: previousGoals });
-       useUIStore.getState().addToast({ type: 'error', message: 'Failed to abandon goal.' });
+       useUIStore.getState().addToast({ type: 'error', message: getApiErrorMessage(error, 'goals') });
        throw error;
     }
   },
@@ -167,7 +168,7 @@ export const useGoalStore = create<GoalState>((set, get) => ({
       await client.put(`/goals/reorder`, { goal_ids: goalIds });
     } catch (error) {
       set({ goals: previousGoals });
-      useUIStore.getState().addToast({ type: 'error', message: 'Failed to save new custom order.' });
+      useUIStore.getState().addToast({ type: 'error', message: getApiErrorMessage(error, 'goals') });
       throw error;
     }
   }

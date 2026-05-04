@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { PrimaryButton } from './atom-button-primary';
 import { login } from '../../api/userApi';
+import { getApiErrorMessage } from '../../lib/errorHandler';
 
 export interface LoginScreenProps {
   navigate: (screen: string) => void;
@@ -20,8 +21,8 @@ export function LoginScreen({ navigate }: LoginScreenProps) {
     try {
       await login(email, password);
       navigate('home');
-    } catch (err: any) {
-      setError(err.message || 'Login failed. Please try again.');
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'login'));
     } finally {
       setLoading(false);
     }

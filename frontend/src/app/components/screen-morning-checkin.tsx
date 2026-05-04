@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { ArrowLeft, X } from 'lucide-react';
 import { scheduleApi } from '../../api/scheduleApi';
 import { useAuthStore } from '../../stores/authStore';
+import { getApiErrorMessage } from '../../lib/errorHandler';
 
 interface Props {
   navigate: (screen: string) => void;
@@ -22,6 +23,7 @@ export default function ScreenMorningCheckin({ navigate }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
   const [blockFocus, setBlockFocus] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchTasks = async () => {
@@ -31,6 +33,7 @@ export default function ScreenMorningCheckin({ navigate }: Props) {
         setTodaysTasks(tasks || []);
       } catch (err) {
         console.error('Failed to load tasks', err);
+        setError(getApiErrorMessage(err, 'checkin'));
         setTodaysTasks([]);
       }
     };
@@ -56,6 +59,7 @@ export default function ScreenMorningCheckin({ navigate }: Props) {
       }, 1000);
     } catch (err) {
       console.error(err);
+      setError(getApiErrorMessage(err, 'checkin'));
       setSubmitting(false);
     }
   };
@@ -546,6 +550,11 @@ export default function ScreenMorningCheckin({ navigate }: Props) {
       </div>
 
       {/* Content wrapper with basic slide animation classes */}
+      {error && (
+        <div className="mx-4 mt-2 text-[#C0392B] text-[13px] text-center bg-[#FDF2F1] p-3 rounded-lg border border-[#F5C2C0]">
+          {error}
+        </div>
+      )}
       <div className="flex-1 relative overflow-hidden">
         <div 
           className="absolute inset-0 flex transition-transform duration-300 ease-in-out h-full"

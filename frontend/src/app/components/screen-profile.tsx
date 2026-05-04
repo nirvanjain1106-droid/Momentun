@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { getMe, logout } from '../../api/userApi';
+import { getApiErrorMessage } from '../../lib/errorHandler';
 
 export interface ProfileScreenProps {
   navigate: (screen: string) => void;
@@ -18,6 +19,7 @@ interface UserProfile {
 export function ProfileScreen({ navigate }: ProfileScreenProps) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   // Toggles state
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
@@ -34,6 +36,7 @@ export function ProfileScreen({ navigate }: ProfileScreenProps) {
         });
       } catch (err) {
         console.error("Failed to load profile", err);
+        setError(getApiErrorMessage(err, 'profile'));
       } finally {
         setLoading(false);
       }
@@ -50,10 +53,27 @@ export function ProfileScreen({ navigate }: ProfileScreenProps) {
     return name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
   };
 
-  if (loading || !profile) {
+  if (loading) {
     return (
       <div className="min-h-screen w-full flex items-center justify-center bg-[#FAF6F2]">
         <div className="w-8 h-8 border-4 border-[#B8472A] border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
+  if (error || !profile) {
+    return (
+      <div className="min-h-screen w-full flex flex-col items-center justify-center bg-[#FAF6F2] px-6 gap-4">
+        <div className="text-[#C0392B] text-[14px] text-center bg-[#FDF2F1] p-4 rounded-lg border border-[#F5C2C0] max-w-[340px]">
+          {error || 'Unable to load your profile.'}
+        </div>
+        <button
+          type="button"
+          onClick={() => navigate('login')}
+          className="text-[#B8472A] text-[14px] font-semibold hover:underline"
+        >
+          Sign in again
+        </button>
       </div>
     );
   }

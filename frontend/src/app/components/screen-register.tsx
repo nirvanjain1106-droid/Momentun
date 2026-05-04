@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { PrimaryButton } from './atom-button-primary';
 import { register } from '../../api/userApi';
+import { getApiErrorMessage } from '../../lib/errorHandler';
 
 export interface RegisterScreenProps {
   navigate: (screen: string) => void;
@@ -14,6 +15,7 @@ export function RegisterScreen({ navigate }: RegisterScreenProps) {
   
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isConflict, setIsConflict] = useState(false);
 
   const validateForm = () => {
     if (!name.trim() || !email.trim() || !password || !confirmPassword) {
@@ -44,6 +46,7 @@ export function RegisterScreen({ navigate }: RegisterScreenProps) {
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setIsConflict(false);
     
     if (!validateForm()) return;
 
@@ -52,8 +55,10 @@ export function RegisterScreen({ navigate }: RegisterScreenProps) {
     try {
       await register({ name, email, password });
       navigate('onboarding');
-    } catch (err: any) {
-      setError(err.message || 'Registration failed. Please try again.');
+    } catch (err) {
+      const status = (err as any)?.response?.status;
+      setIsConflict(status === 409);
+      setError(getApiErrorMessage(err, 'register'));
     } finally {
       setLoading(false);
     }
@@ -112,6 +117,15 @@ export function RegisterScreen({ navigate }: RegisterScreenProps) {
           {error && (
             <div className="text-[#C0392B] text-[13px] mb-4 text-center bg-[#FDF2F1] p-3 rounded-lg border border-[#F5C2C0]">
               {error}
+              {isConflict && (
+                <button
+                  type="button"
+                  onClick={() => navigate('login')}
+                  className="block mx-auto mt-2 text-[#B8472A] font-semibold hover:underline focus:outline-none"
+                >
+                  Sign in instead →
+                </button>
+              )}
             </div>
           )}
 
