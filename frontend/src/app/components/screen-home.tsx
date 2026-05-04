@@ -1,6 +1,12 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { BottomBar } from "./molecule-nav-bottom-bar";
 import type { BottomBarTab } from "./molecule-nav-bottom-bar";
+import { scheduleApi } from "../../api/scheduleApi";
+import type { ScheduleResponse } from "../../api/scheduleApi";
+import { insightsApi } from "../../api/insightsApi";
+import type { StreakData } from "../../api/insightsApi";
+import { userApi } from "../../api/userApi";
+import type { UserProfile } from "../../api/userApi";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Screen/Home — iPhone 14 Pro frame shell
@@ -30,9 +36,16 @@ import type { BottomBarTab } from "./molecule-nav-bottom-bar";
 //   onTabChange  — forwarded to BottomBar
 // ─────────────────────────────────────────────────────────────────────────────
 
+export interface HomeData {
+  schedule: ScheduleResponse | null;
+  streak: StreakData | null;
+  profile: UserProfile | null;
+  error: string;
+}
+
 export interface ScreenHomeProps {
-  header?:      React.ReactNode;
-  children?:    React.ReactNode;
+  header?:      React.ReactNode | ((data: HomeData) => React.ReactNode);
+  children?:    React.ReactNode | ((data: HomeData) => React.ReactNode);
   activeTab?:   BottomBarTab;
   onTabChange?: (tab: BottomBarTab) => void;
 }
@@ -113,6 +126,60 @@ export function ScreenHome({
   activeTab   = "Home",
   onTabChange,
 }: ScreenHomeProps) {
+  const [schedule, setSchedule] = useState<ScheduleResponse | null>(null);
+  const [streak, setStreak] = useState<StreakData | null>(null);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const today = new Date().toISOString().split("T")[0];
+
+    Promise.all([
+      scheduleApi.getTodaySchedule(today),
+      insightsApi.getStreak(),
+      userApi.getProfile(),
+    ])
+      .then(([sched, str, prof]) => {
+        setSchedule(sched);
+        setStreak(str);
+        setProfile(prof);
+      })
+      .catch((err) => {
+        console.error("Home load error:", err);
+        setError("Failed to load data");
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return (
+    <div style={{
+      height: "100vh",
+      background: "#FAF6F2",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      flexDirection: "column",
+      gap: "12px"
+    }}>
+      <div style={{
+        width: "36px", height: "36px",
+        borderRadius: "50%",
+        border: "3px solid #EDE5DE",
+        borderTopColor: "#B8472A",
+        animation: "spin 0.8s linear infinite"
+      }} />
+      <p style={{ color: "#9C8880", fontSize: "14px",
+        fontFamily: "system-ui" }}>
+        Loading your day...
+      </p>
+    </div>
+  );
+
+  const data = { schedule, streak, profile, error };
+  const renderedHeader = typeof header === "function" ? header(data) : header;
+  const renderedChildren = typeof children === "function" ? children(data) : children;
+
   return (
     <div
       style={{
@@ -140,7 +207,7 @@ export function ScreenHome({
       <StatusBar />
 
       {/* ── 2. Header slot · non-scrolling (optional) ───────────────────── */}
-      {header}
+      {renderedHeader}
 
       {/* ── 3. Content area · flex-1 · scrollable ───────────────────────── */}
       <div
@@ -155,7 +222,7 @@ export function ScreenHome({
           WebkitOverflowScrolling: "touch" as React.CSSProperties["WebkitOverflowScrolling"],
         }}
       >
-        {children}
+        {renderedChildren}
       </div>
 
       {/* ── 4. Bottom nav · 80px · absolute-fixed to frame bottom ───────── */}

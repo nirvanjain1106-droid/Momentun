@@ -1,9 +1,10 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { GoalCard }  from "./molecule-card-goal";
 import { PrimaryButton } from "./atom-button-primary";
 import { BottomBar } from "./molecule-nav-bottom-bar";
 import type { BottomBarTab } from "./molecule-nav-bottom-bar";
+import { client } from "../../api/client";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Screen/Goals — 390 × 844 px  ·  Background #FAF6F2
@@ -110,6 +111,43 @@ function GoalsHeader({ onNewGoal }: { onNewGoal?: () => void }) {
   );
 }
 
+interface GoalSummary {
+  id: string;
+  name: string;
+  subtitle: string;
+  progress: number;
+  status: "success" | "warning" | "error";
+  statusLabel: string;
+  ringColor: string;
+}
+
+const goalColors = ["#E05C7A", "#1A7A4A", "#2E9FD4"];
+
+const getGoalsFromResponse = (data: unknown): Record<string, unknown>[] => {
+  if (Array.isArray(data)) return data as Record<string, unknown>[];
+  if (data && typeof data === "object" && Array.isArray((data as Record<string, unknown>).goals)) {
+    return (data as Record<string, unknown>).goals as Record<string, unknown>[];
+  }
+  return [];
+};
+
+const normalizeGoal = (raw: Record<string, unknown>, index: number): GoalSummary => {
+  const rawStatus = String(raw.status ?? "").toLowerCase();
+  const progress = Number(raw.progress_pct ?? raw.progress ?? 0);
+  const isBehind = rawStatus.includes("behind") || progress < 45;
+  const isWarning = rawStatus.includes("slight") || (progress >= 45 && progress < 60);
+
+  return {
+    id: String(raw.id ?? `goal-${index}`),
+    name: String(raw.name ?? raw.title ?? "Untitled Goal"),
+    subtitle: String(raw.subtitle ?? raw.description ?? ""),
+    progress,
+    status: isBehind ? "error" : isWarning ? "warning" : "success",
+    statusLabel: isBehind ? "Behind" : isWarning ? "Slightly Behind" : "On Track",
+    ringColor: String(raw.ring_color ?? goalColors[index % goalColors.length]),
+  };
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 4.  Accordion row (Paused / Completed)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -190,14 +228,43 @@ export interface ScreenGoalsProps {
   activeTab?:   BottomBarTab;
   onTabChange?: (tab: BottomBarTab) => void;
   onNewGoal?:   () => void;
+  onGoalClick?:  (goalId: string) => void;
 }
 
 export function ScreenGoals({
   activeTab   = "Goals",
   onTabChange,
   onNewGoal,
+  onGoalClick,
 }: ScreenGoalsProps) {
   const [_navTab, setNavTab] = useState<BottomBarTab>(activeTab);
+  const [goals, setGoals] = useState<GoalSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadGoals = () => {
+    client.get('/goals')
+      .then((response) => setGoals(getGoalsFromResponse(response.data).map(normalizeGoal)))
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadGoals();
+  }, []);
+
+  const handleNewGoal = () => {
+    const name = window.prompt('Goal name?');
+    if (!name) return;
+    client.post('/goals', {
+      name,
+      subtitle: '',
+      end_date: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      ring_color: '#E05C7A',
+    }).then(() => {
+      loadGoals();
+      onNewGoal?.();
+    }).catch(console.error);
+  };
 
   return (
     <div
@@ -216,7 +283,7 @@ export function ScreenGoals({
       <StatusBar />
 
       {/* ── 2. Goals header ─────────────────────────────────────────────── */}
-      <GoalsHeader onNewGoal={onNewGoal} />
+      <GoalsHeader onNewGoal={handleNewGoal} />
 
       {/* ── 3. Scrollable content ───────────────────────────────────────── */}
       <div
@@ -264,7 +331,7 @@ export function ScreenGoals({
               padding:      "2px 7px",
             }}
           >
-            3
+            {goals.length}
           </span>
         </div>
 
@@ -277,13 +344,53 @@ export function ScreenGoals({
           }}
         >
           {/* 1. Website Launch — 65% / On Track */}
-          <GoalCard goal="Website-Launch" />
+          {loading ? (
+            <div style={{
+              textAlign: "center",
+              padding: "48px 24px",
+              color: "#9C8880",
+              fontSize: "15px",
+            }}>
+              Loading goals...
+            </div>
+          ) : goals.length === 0 ? (
+            <div style={{
+              textAlign: "center",
+              padding: "48px 24px",
+              color: "#9C8880",
+              fontSize: "15px",
+            }}>
+              No goals yet.
+            </div>
+          ) : goals.map((goal, index) => (
+            <button
+              key={goal.id}
+              type="button"
+              onClick={() => onGoalClick?.(goal.id)}
+              style={{
+                background: "transparent",
+                border: "none",
+                padding: 0,
+                cursor: "pointer",
+                textAlign: "left",
+              }}
+            >
+              <GoalCard
+                goal={index % 3 === 0 ? "Website-Launch" : index % 3 === 1 ? "Books" : "Marathon"}
+                name={goal.name}
+                subtitle={goal.subtitle}
+                percent={goal.progress}
+                status={goal.status}
+                statusLabel={goal.statusLabel}
+              />
+            </button>
+          ))}
 
           {/* 2. Read 12 Books — 58% / Slightly Behind */}
-          <GoalCard goal="Books" />
+          {false && <GoalCard goal="Books" />}
 
           {/* 3. Run Half Marathon — 40% / Behind */}
-          <GoalCard goal="Marathon" />
+          {false && <GoalCard goal="Marathon" />}
         </div>
 
         {/* ── 3c. Accordion rows ───────────────────────────────────────── */}

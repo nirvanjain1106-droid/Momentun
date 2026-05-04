@@ -162,10 +162,11 @@ export default function ScreenSettings({ navigate }: Props) {
 
   const selectSheetOption = (option: string) => {
     if (bottomSheet.prefKey) {
-      if (bottomSheet.prefKey === 'theme' && option === 'Dark') {
-        showToast('Dark mode coming soon');
-        // keep Light
-        updatePreference(bottomSheet.prefKey, 'Light');
+      if (bottomSheet.prefKey === 'theme') {
+        const theme = option === 'Dark' ? 'dark' : 'light';
+        localStorage.setItem('momentum_theme', theme);
+        document.body.classList.toggle('dark-mode', theme === 'dark');
+        updatePreference(bottomSheet.prefKey, option);
       } else {
         updatePreference(bottomSheet.prefKey, option);
       }

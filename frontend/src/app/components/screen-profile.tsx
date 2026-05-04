@@ -1,14 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { getMe, logout } from '../../api/userApi';
+import { userApi, logout } from '../../api/userApi';
+import type { UserProfile as ApiUserProfile } from '../../api/userApi';
 import { getApiErrorMessage } from '../../lib/errorHandler';
 
 export interface ProfileScreenProps {
   navigate: (screen: string) => void;
 }
 
-interface UserProfile {
-  name: string;
-  email: string;
+interface UserProfile extends ApiUserProfile {
   stats?: {
     daysActive: number;
     goalsCompleted: number;
@@ -28,14 +27,21 @@ export function ProfileScreen({ navigate }: ProfileScreenProps) {
   useEffect(() => {
     async function loadData() {
       try {
-        const data = await getMe();
+        const data = await userApi.getProfile();
         setProfile({
+          ...data,
           name: data.name,
           email: data.email,
           stats: (data as any).stats ?? { daysActive: 0, goalsCompleted: 0, avgFocusTime: '0h' },
         });
       } catch (err) {
         console.error("Failed to load profile", err);
+        const status = (err as any)?.response?.status;
+        if (status === 401) {
+          await logout();
+          navigate('login');
+          return;
+        }
         setError(getApiErrorMessage(err, 'profile'));
       } finally {
         setLoading(false);
@@ -47,6 +53,20 @@ export function ProfileScreen({ navigate }: ProfileScreenProps) {
   const handleLogout = async () => {
     await logout();
     navigate('login');
+  };
+
+  const handleEditProfile = () => {
+    const name = window.prompt('New name?', profile?.name ?? '');
+    if (!name) return;
+    userApi.updateProfile({ name })
+      .then((updated) => setProfile((current) => ({
+        ...updated,
+        stats: current?.stats,
+      })))
+      .catch((err) => {
+        console.error('Failed to update profile', err);
+        setError(getApiErrorMessage(err, 'profile'));
+      });
   };
 
   const getInitials = (name: string) => {
@@ -145,7 +165,7 @@ export function ProfileScreen({ navigate }: ProfileScreenProps) {
           <h2 className="text-[20px] font-bold text-[#1A1210] mb-1">{profile.name}</h2>
           <p className="text-[14px] text-[#9C8880] mb-6">{profile.email}</p>
           
-          <button className="w-full h-[44px] bg-white border border-[#EDE5DE] rounded-[12px] flex items-center justify-center text-[15px] font-semibold text-[#1A1210] hover:bg-[#FAF6F2] transition-colors shadow-sm">
+          <button onClick={handleEditProfile} className="w-full h-[44px] bg-white border border-[#EDE5DE] rounded-[12px] flex items-center justify-center text-[15px] font-semibold text-[#1A1210] hover:bg-[#FAF6F2] transition-colors shadow-sm">
             Edit Profile
           </button>
         </div>

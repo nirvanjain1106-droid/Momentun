@@ -12,12 +12,10 @@ export const client = axios.create({
 });
 
 // ── Token management ──────────────────────────────────────────
-// cookies. The only reason we keep a setter is so the authStore
-// hydrate() path can acknowledge a successful silent refresh
-// without needing the actual token value.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export const setAccessToken = (_token: string | null) => {
-  /* no-op: auth is cookie-based; kept for API compat with authStore */
+let accessToken: string | null = null;
+
+export const setAccessToken = (token: string | null) => {
+  accessToken = token;
 };
 
 let isRefreshing = false;
@@ -26,7 +24,7 @@ let failedQueue: Array<{
   reject: (reason?: unknown) => void;
 }> = [];
 
-const processQueue = (error: AxiosError | null) => {
+const processQueue = (error: AxiosError | null, _newToken?: string) => {
   failedQueue.forEach((prom) => {
     if (error) {
       prom.reject(error);
@@ -44,8 +42,16 @@ declare module 'axios' {
   }
 }
 
-// ── Request interceptor — debug timing ──────────────────────────────────────
+// ── Request interceptor — auth + debug timing ──────────────────────────────
 client.interceptors.request.use((config) => {
+  const token = accessToken ||
+    client.defaults.headers.common['Authorization']
+      ?.toString().replace('Bearer ', '');
+
+  if (token && config.url !== '/auth/refresh') {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+
   if (import.meta.env.DEV) {
     debugLog('API', `→ ${config.method?.toUpperCase()} ${config.url}`);
   }
@@ -108,18 +114,55 @@ client.interceptors.response.use(
       isRefreshing = true;
 
       try {
-        // Cookie-based refresh — the server reads refresh_token from
-        // the httpOnly cookie and sets a new access_token cookie.
-        await client.post('/auth/refresh');
-        
-        processQueue(null);
+        const refreshResponse = await client.post('/auth/refresh');
+        const newToken = refreshResponse.data.access_token;
+
+        // Set token in memory
+        setAccessToken(newToken);
+
+        // CRITICAL FIX 1:
+        // Also set on axios instance default headers
+        // so ALL future requests use the new token
+        client.defaults.headers.common['Authorization'] =
+          `Bearer ${newToken}`;
+
+        // CRITICAL FIX 2:
+        // Also set on the specific retry request
+        // so THIS retry uses the new token immediately
+        if (originalRequest.headers) {
+          originalRequest.headers['Authorization'] =
+            `Bearer ${newToken}`;
+        }
+
+        // Now process queued requests with new token
+        processQueue(null, newToken);
+
+        // Retry original request (now has token)
         return client(originalRequest);
       } catch (refreshError) {
         processQueue(refreshError as AxiosError);
-        
-        try { await useAuthStore.getState().logout(); } catch { /* best-effort logout API clearing */ }
-        // No hard navigation — App.tsx reacts to userId becoming null
-        // and automatically renders the login screen via state.
+
+        // Clear tokens locally WITHOUT calling API
+        // (API logout would fail with 401 anyway)
+        setAccessToken(null);
+        delete client.defaults.headers.common['Authorization'];
+
+        // Clear any stored tokens
+        try {
+          localStorage.removeItem('access_token');
+          localStorage.removeItem('refresh_token');
+        } catch {}
+
+        // Clear auth store state directly
+        try {
+          useAuthStore.getState().clearUser();
+        } catch {}
+
+        // Dispatch event so App.tsx can redirect
+        window.dispatchEvent(
+          new CustomEvent('auth:session-expired')
+        );
+
         return Promise.reject(refreshError);
       } finally {
         isRefreshing = false;
@@ -129,4 +172,3 @@ client.interceptors.response.use(
     return Promise.reject(error);
   }
 );
-

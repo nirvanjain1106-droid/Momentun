@@ -10,6 +10,8 @@ import {
 import { HeroFocusCard }  from "./molecule-card-hero-focus";
 import { StatCard }        from "./molecule-card-stat";
 import { AICoachCard }     from "./molecule-card-ai-coach";
+import type { ScheduleResponse } from "../../api/scheduleApi";
+import type { StreakData } from "../../api/insightsApi";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Screen/Home — Content Sections
@@ -55,7 +57,7 @@ const GRID_COLOR        = "#EDE5DE";  // var(--divider)
 const AXIS_TICK_COLOR   = "#9C8880";  // var(--text-muted)
 const AXIS_TICK_SIZE    = 11;
 
-function FocusTimeCard() {
+function FocusTimeCard({ value }: { value: string }) {
   return (
     <div
       style={{
@@ -95,7 +97,7 @@ function FocusTimeCard() {
             lineHeight:  "var(--text-lh-140)",
           }}
         >
-          4h 28m
+          {value}
         </span>
       </div>
 
@@ -178,7 +180,31 @@ function FocusTimeCard() {
 }
 
 // ── Exported content wrapper ──────────────────────────────────────────────────
-export function HomeContent() {
+const isCompletedTask = (status: string) => status === "completed" || status === "done";
+
+const formatMinutes = (mins: number) => {
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+};
+
+export interface HomeContentProps {
+  schedule?: ScheduleResponse | null;
+  streak?: StreakData | null;
+  error?: string;
+  onChatWithCoach?: () => void;
+}
+
+export function HomeContent({
+  schedule,
+  error,
+  onChatWithCoach,
+}: HomeContentProps) {
+  const completedTasks = schedule?.tasks?.filter((task) => isCompletedTask(task.task_status)).length ?? 0;
+  const totalTasks = schedule?.total_tasks ?? schedule?.tasks?.length ?? 0;
+  const focusTime = formatMinutes(schedule?.total_study_mins ?? 0);
+  const energyScore = `${completedTasks} / 100`;
+
   return (
     <div
       style={{
@@ -192,6 +218,20 @@ export function HomeContent() {
       {/* ── Section 1: Today's Focus ── */}
       <HeroFocusCard />
 
+      {error && (
+        <div style={{
+          background: "#FDF2F1",
+          border: "1px solid #F5C2C0",
+          borderRadius: "12px",
+          color: "#C0392B",
+          fontFamily: "var(--font-sf-pro)",
+          fontSize: "13px",
+          padding: "10px 12px",
+        }}>
+          {error}
+        </div>
+      )}
+
       {/* ── Section 2: Stats Row ── */}
       <div
         style={{
@@ -200,21 +240,21 @@ export function HomeContent() {
         }}
       >
         <div style={{ flex: 1, minWidth: 0 }}>
-          <StatCard type="Tasks-Done" />
+          <StatCard type="Tasks-Done" value={`${completedTasks} / ${totalTasks}`} />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <StatCard type="Focus-Time" />
+          <StatCard type="Focus-Time" value={focusTime} />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <StatCard type="Energy-Score" />
+          <StatCard type="Energy-Score" value={energyScore} />
         </div>
       </div>
 
       {/* ── Section 3: Focus Time Today ── */}
-      <FocusTimeCard />
+      <FocusTimeCard value={focusTime} />
 
       {/* ── Section 4: AI Coach ── */}
-      <AICoachCard />
+      <AICoachCard onCTAClick={onChatWithCoach} />
 
     </div>
   );

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   ChevronDown, CalendarDays, AlignJustify,
   Layers, FileText, Target,
@@ -14,6 +14,8 @@ import { TaskCard }        from "./molecule-card-task";
 import { BottomBar }       from "./molecule-nav-bottom-bar";
 import type { BottomBarTab } from "./molecule-nav-bottom-bar";
 import type { AppIconDef, AvatarDef } from "./molecule-card-task";
+import { scheduleApi } from "../../api/scheduleApi";
+import type { ScheduleResponse, TaskDetail } from "../../api/scheduleApi";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Screen/Tasks — 390 × 844px  ·  Background #FAF6F2
@@ -425,6 +427,22 @@ const TASKS: TaskDef[] = [
     ],
   },
 ];
+void TASKS;
+
+const taskColor = (task: TaskDetail) =>
+  task.energy_required === "high"
+    ? "#B8472A"
+    : task.energy_required === "medium"
+    ? "#2E9FD4"
+    : "#1A7A4A";
+
+const taskTime = (task: TaskDetail) => {
+  if (!task.scheduled_start) return "Anytime";
+  return new Date(task.scheduled_start).toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+};
 
 // ══ 5. Task timeline (scrollable list with time dots + connecting line) ═══════
 
@@ -440,8 +458,14 @@ const TASKS: TaskDef[] = [
 // last row.  Since alignItems: stretch on the outer flex row, the dot col
 // auto-extends to fill the card+gap height, keeping the line continuous.
 
-function TaskTimeline() {
-  const last = TASKS.length - 1;
+function TaskTimeline({
+  tasks,
+  onTaskComplete,
+}: {
+  tasks: TaskDetail[];
+  onTaskComplete: (task: TaskDetail) => void;
+}) {
+  const last = tasks.length - 1;
 
   return (
     <div
@@ -451,9 +475,9 @@ function TaskTimeline() {
         paddingTop:    "8px",
       }}
     >
-      {TASKS.map((task, i) => (
+      {tasks.map((task, i) => (
         <div
-          key={task.time}
+          key={task.id}
           style={{
             display:    "flex",
             alignItems: "stretch",
@@ -480,7 +504,7 @@ function TaskTimeline() {
                 whiteSpace:  "nowrap",
               }}
             >
-              {task.time}
+              {taskTime(task)}
             </span>
           </div>
 
@@ -515,7 +539,7 @@ function TaskTimeline() {
                 height:       "8px",
                 borderRadius: "50%",
                 flexShrink:   0,
-                background:   task.isCurrent
+                background:   task.task_status !== "completed" && i === 0
                   ? "var(--accent-primary)"  // #B8472A
                   : "var(--surface-border)", // #EDE5DE
                 zIndex:       1,
@@ -544,16 +568,27 @@ function TaskTimeline() {
               paddingBottom: i < last ? "12px" : 0,
             }}
           >
-            <TaskCard
-              state={task.state}
-              taskName={task.taskName}
-              subtitle={task.subtitle}
-              duration={task.duration}
-              categoryColor={task.categoryColor}
-              showAvatars={task.showAvatars}
-              appIcons={task.appIcons}
-              avatars={task.avatars}
-            />
+              <button
+                type="button"
+                onClick={() => onTaskComplete(task)}
+                style={{
+                  width: "100%",
+                  background: "transparent",
+                  border: "none",
+                  padding: 0,
+                  cursor: "pointer",
+                  textAlign: "left",
+                }}
+              >
+                <TaskCard
+                  state={task.task_status === "completed" ? "Active" : "Inactive"}
+                  taskName={task.title}
+                  subtitle={task.description ?? ""}
+                  duration={`${task.duration_mins}m`}
+                  categoryColor={taskColor(task)}
+                  showAvatars={false}
+                />
+              </button>
           </div>
         </div>
       ))}
@@ -574,6 +609,35 @@ export function ScreenTasks({
 }: ScreenTasksProps) {
   const [_active, setActive] = useState<BottomBarTab>(activeTab);
   const current = _active;
+  const [schedule, setSchedule] = useState<ScheduleResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const today = new Date().toISOString().split("T")[0];
+
+  const refetchSchedule = () => {
+    scheduleApi.getTodaySchedule(today)
+      .then(setSchedule)
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    refetchSchedule();
+  }, [today]);
+
+  const handleAddTask = () => {
+    const title = window.prompt("Task name?");
+    if (!title) return;
+    scheduleApi.quickAddTask({
+      title,
+      duration_mins: 30,
+    }).then(refetchSchedule).catch(console.error);
+  };
+
+  const handleTaskComplete = (task: TaskDetail) => {
+    scheduleApi.completeTask(task.id, {})
+      .then(refetchSchedule)
+      .catch(console.error);
+  };
 
   return (
     <div
@@ -616,7 +680,7 @@ export function ScreenTasks({
           boxSizing:  "border-box",
         }}
       >
-        <PrimaryButton label="+ Add Task" className="w-full" />
+        <PrimaryButton label="+ Add Task" className="w-full" onClick={handleAddTask} />
       </div>
 
       {/* ── 6. Scrollable task timeline ───────────────────────────────── */}
@@ -630,7 +694,30 @@ export function ScreenTasks({
           WebkitOverflowScrolling: "touch" as React.CSSProperties["WebkitOverflowScrolling"],
         }}
       >
-        <TaskTimeline />
+        {loading ? (
+          <div style={{
+            textAlign: "center",
+            padding: "48px 24px",
+            color: "#9C8880",
+            fontSize: "15px",
+          }}>
+            Loading tasks...
+          </div>
+        ) : (
+          <>
+            <TaskTimeline tasks={schedule?.tasks ?? []} onTaskComplete={handleTaskComplete} />
+            {(schedule?.tasks ?? []).length === 0 && (
+              <div style={{
+                textAlign: "center",
+                padding: "48px 24px",
+                color: "#9C8880",
+                fontSize: "15px"
+              }}>
+                No tasks scheduled for today.
+              </div>
+            )}
+          </>
+        )}
       </div>
 
       {/* ── 7. Bottom nav · absolute ──────────────────────────────────── */}

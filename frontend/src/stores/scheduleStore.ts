@@ -74,6 +74,7 @@ function getErrorMessage(error: unknown, fallback: string): string {
   const queueableError = asQueueableError(error);
   return queueableError?.message || fallback;
 }
+void getErrorMessage;
 
 const TODAY_CACHE_KEY = 'today_schedule';
 

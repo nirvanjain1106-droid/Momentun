@@ -79,6 +79,18 @@ export default function App() {
     hydrate();
   }, [hydrate]);
 
+  useEffect(() => {
+    const handleExpired = () => {
+      setScreen("login");
+    };
+    window.addEventListener("auth:expired", handleExpired);
+    window.addEventListener("auth:session-expired", handleExpired);
+    return () => {
+      window.removeEventListener("auth:expired", handleExpired);
+      window.removeEventListener("auth:session-expired", handleExpired);
+    };
+  }, []);
+
   // ── Resolve screen once auth is known ─────────────────────────────────────
   useEffect(() => {
     if (!isHydrated) return;
@@ -179,6 +191,32 @@ export default function App() {
           <ScreenHome
             activeTab={activeTab ?? "Home"}
             onTabChange={handleTabChange}
+            header={({ profile }) => (
+              <HomeHeader
+                name={`${profile?.name?.split(" ")[0] ?? userName?.split(" ")[0] ?? "Alex"} ðŸ‘‹`}
+                onBellPress={() => {
+                  console.log("Notifications tapped");
+                }}
+                onSettingsPress={() => navigate("settings")}
+              />
+            )}
+          >
+            {({ schedule, streak, error }) => (
+              <HomeContent
+                schedule={schedule}
+                streak={streak}
+                error={error}
+                onChatWithCoach={() => navigate("ai-coach")}
+              />
+            )}
+          </ScreenHome>
+        );
+
+      case "home":
+        return (
+          <ScreenHome
+            activeTab={activeTab ?? "Home"}
+            onTabChange={handleTabChange}
             header={<HomeHeader name={userName ? `${userName} 👋` : undefined} />}
           >
             <HomeContent />
@@ -206,7 +244,7 @@ export default function App() {
           <ScreenGoals
             activeTab={activeTab ?? "Goals"}
             onTabChange={handleTabChange}
-            onNewGoal={() => navigate("empty-goals")}
+            onGoalClick={(goalId) => navigate(`goal-detail:${goalId}`)}
           />
         );
 
@@ -226,6 +264,7 @@ export default function App() {
         return (
           <ScreenWeeklySummary
             onBack={() => navigate("home")}
+            onViewReport={() => navigate("insights")}
             onTabChange={handleTabChange}
           />
         );

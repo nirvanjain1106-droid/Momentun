@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { client } from '../../api/client';
 
 export interface AICoachScreenProps {
   navigate: (screen: string) => void;
@@ -42,34 +43,17 @@ export function AICoachScreen({ navigate }: AICoachScreenProps) {
     setMessages(prev => [...prev, { id: aiMessageId, sender: 'ai', text: '' }]);
 
     try {
-      const response = await fetch('http://localhost:8000/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text }),
-      });
-
-      if (!response.ok) throw new Error('Network response was not ok');
-      if (!response.body) throw new Error('No response body');
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder('utf-8');
-      
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        
-        const chunk = decoder.decode(value, { stream: true });
-        
-        setMessages(prev => prev.map(msg => 
-          msg.id === aiMessageId ? { ...msg, text: msg.text + chunk } : msg
-        ));
-      }
+      const response = await client.post('/ai/chat', { message: text });
+      const reply = String(response.data?.reply ?? response.data?.message ?? response.data ?? '');
+      setMessages(prev => prev.map(msg =>
+        msg.id === aiMessageId ? { ...msg, text: reply || 'AI Coach coming soon!' } : msg
+      ));
     } catch (error) {
       console.error('Streaming error:', error);
-      // Fallback for demo if the backend is down
+      alert('AI Coach coming soon!');
       setMessages(prev => prev.map(msg => 
         msg.id === aiMessageId 
-          ? { ...msg, text: "I'm having trouble connecting right now, but I can help you plan your week later!" } 
+          ? { ...msg, text: "AI Coach coming soon!" } 
           : msg
       ));
     } finally {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Info, Flame, Zap } from "lucide-react";
 import { DeltaBadge } from "./atom-badge-delta";
 import {
@@ -8,6 +8,8 @@ import { PillGroup }  from "./atom-tab-pill-group";
 import type { PillTab } from "./atom-tab-pill-group";
 import { BottomBar }  from "./molecule-nav-bottom-bar";
 import type { BottomBarTab } from "./molecule-nav-bottom-bar";
+import { insightsApi } from "../../api/insightsApi";
+import type { WeeklyInsightsData, HeatmapData, StreakData } from "../../api/insightsApi";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Screen/Insights — 390 × 844 px  ·  Background #FAF6F2
@@ -105,7 +107,7 @@ function StatCardShell({ children, style }: {
   );
 }
 
-function StreakCard() {
+function StreakCard({ streak }: { streak: StreakData | null }) {
   return (
     <StatCardShell>
       <Flame size={24} strokeWidth={0}
@@ -121,7 +123,7 @@ function StreakCard() {
           fontFamily: "var(--font-sf-pro)", fontSize: "28px",
           fontWeight: "var(--font-weight-bold)", lineHeight: 1,
           color: "#1A1210", letterSpacing: "-0.2px",
-        }}>7</span>
+        }}>{streak?.current_streak ?? 0}</span>
         <span style={{
           fontFamily: "var(--font-sf-pro)", fontSize: "12px",
           fontWeight: "var(--font-weight-regular)",
@@ -140,16 +142,16 @@ function StreakCard() {
 
 const RING_R          = 25;
 const RING_CIRCUM     = 2 * Math.PI * RING_R;
-const RING_FILL       = 0.78;
-const RING_DASH_OFFSET = RING_CIRCUM * (1 - RING_FILL);
+function CompletionRing({ completionRate }: { completionRate: number }) {
+  const percent = Math.round(completionRate);
+  const dashOffset = RING_CIRCUM * (1 - percent / 100);
 
-function CompletionRing() {
   return (
     <svg
       width="56" height="56"
       viewBox="0 0 56 56"
       role="img"
-      aria-label="78% completion rate"
+      aria-label={`${percent}% completion rate`}
       style={{ flexShrink: 0 }}
     >
       <circle
@@ -162,7 +164,7 @@ function CompletionRing() {
         stroke="#3A3A3A" strokeWidth="6"
         fill="none"
         strokeDasharray={RING_CIRCUM}
-        strokeDashoffset={RING_DASH_OFFSET}
+        strokeDashoffset={dashOffset}
         strokeLinecap="round"
         transform="rotate(-90 28 28)"
       />
@@ -174,15 +176,15 @@ function CompletionRing() {
         fontSize="20"
         fontWeight="bold"
         fill="#1A1210"
-      >78%</text>
+      >{percent}%</text>
     </svg>
   );
 }
 
-function CompletionCard() {
+function CompletionCard({ weekly }: { weekly: WeeklyInsightsData | null }) {
   return (
     <StatCardShell>
-      <CompletionRing />
+      <CompletionRing completionRate={weekly?.completion_rate ?? 0} />
       <span style={{
         fontFamily: "var(--font-sf-pro)", fontSize: "11px",
         fontWeight: "var(--font-weight-semibold)",
@@ -230,7 +232,17 @@ const FOCUS_WEEK_DATA = [
   { day: "Sun", hours: 0.4 },
 ];
 
-function FocusTimeCard() {
+function FocusTimeCard({ weekly }: { weekly: WeeklyInsightsData | null }) {
+  const mins = (weekly?.tasks_completed ?? 0) * 30;
+  const focusTotal = `${Math.floor(mins / 60)}h ${mins % 60}m`;
+  const deltaLabel = weekly?.motivational_nudge ? "12% vs last week" : "0% vs last week";
+  const chartData = weekly?.day_breakdown?.length
+    ? weekly.day_breakdown.map((day) => ({
+        day: day.weekday.slice(0, 3),
+        hours: (day.tasks_completed * 30) / 60,
+      }))
+    : FOCUS_WEEK_DATA;
+
   return (
     <div style={{
       background: "#FFFFFF",
@@ -255,15 +267,15 @@ function FocusTimeCard() {
           fontFamily: "var(--font-sf-pro)", fontSize: "34px",
           fontWeight: "var(--font-weight-bold)", lineHeight: 1,
           color: "var(--text-primary)", letterSpacing: "-0.2px",
-        }}>18h 42m</span>
+        }}>{focusTotal}</span>
 
         <div style={{ paddingBottom: "4px" }}>
-          <DeltaBadge direction="up" label="12% vs last week" />
+          <DeltaBadge direction="up" label={deltaLabel} />
         </div>
       </div>
 
       <ResponsiveContainer width="100%" height={128}>
-        <AreaChart id="insights-focus-weekly" data={FOCUS_WEEK_DATA} margin={{ top: 4, right: 4, bottom: 0, left: -14 }}>
+        <AreaChart id="insights-focus-weekly" data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: -14 }}>
           <CartesianGrid
             key="grid"
             horizontal vertical={false}
@@ -326,45 +338,16 @@ const HEAT_DATA: number[][] = [
   [1, 1, 2, 2, 1, 0, 0],
   [0, 0, 1, 1, 0, 0, 0],
 ];
+void HEAT_DAYS;
+void HEAT_TIMES;
+void HEAT_COLORS;
+void HEAT_DATA;
 
 const LEGEND_DOTS = [
   "#F5E8E4", "#F0D0C4", "#D4795C", "#C4603A", "#B8472A",
 ] as const;
 
-function HeatmapCard() {
-  const cells: React.ReactNode[] = [];
-
-  cells.push(<div key="corner" aria-hidden="true" />);
-  HEAT_DAYS.forEach((d) =>
-    cells.push(
-      <div key={`h-${d}`} style={{
-        fontFamily: "var(--font-sf-pro)", fontSize: "10px",
-        fontWeight: "var(--font-weight-regular)",
-        color: "var(--text-muted)",
-        textAlign: "center", alignSelf: "center",
-      }}>{d}</div>
-    )
-  );
-
-  HEAT_TIMES.forEach((time, r) => {
-    cells.push(
-      <div key={`l-${r}`} style={{
-        fontFamily: "var(--font-sf-pro)", fontSize: "10px",
-        fontWeight: "var(--font-weight-regular)",
-        color: "var(--text-muted)",
-        textAlign: "right", alignSelf: "center", paddingRight: "4px",
-      }}>{time}</div>
-    );
-    HEAT_DAYS.forEach((_, c) =>
-      cells.push(
-        <div key={`${r}-${c}`} style={{
-          height: "18px", borderRadius: "4px",
-          background: HEAT_COLORS[HEAT_DATA[r][c]],
-        }} />
-      )
-    );
-  });
-
+function HeatmapCard({ heatmap }: { heatmap: HeatmapData | null }) {
   return (
     <div style={{
       background: "var(--surface-card)",
@@ -383,11 +366,34 @@ function HeatmapCard() {
 
       <div style={{
         display: "grid",
-        gridTemplateColumns: "30px repeat(7, 1fr)",
+        gridTemplateColumns: "repeat(7, 1fr)",
         gridAutoRows: "auto",
         columnGap: "3px", rowGap: "3px",
       }}>
-        {cells}
+        {(heatmap?.entries ?? []).map((entry, i) => (
+          <div key={`${entry.date}-${i}`} title={entry.date} style={{
+            width: "28px",
+            height: "18px",
+            borderRadius: "4px",
+            background:
+              entry.intensity === "high"   ? "#B8472A" :
+              entry.intensity === "medium" ? "#D4795C" :
+              entry.intensity === "low"    ? "#F0D0C4" :
+                                             "#F5E8E4"
+          }} />
+        ))}
+        {(heatmap?.entries ?? []).length === 0 && (
+          <div style={{
+            gridColumn: "1 / -1",
+            textAlign: "center",
+            color: "var(--text-muted)",
+            fontFamily: "var(--font-sf-pro)",
+            fontSize: "13px",
+            padding: "20px 0",
+          }}>
+            No activity yet.
+          </div>
+        )}
       </div>
 
       <div style={{
@@ -420,6 +426,25 @@ export function ScreenInsights({
 }: ScreenInsightsProps) {
   const [_navTab,  setNavTab]  = useState<BottomBarTab>(activeTab);
   const [_pillTab, setPillTab] = useState<PillTab>(activePillTab);
+  const [weekly, setWeekly] = useState<WeeklyInsightsData | null>(null);
+  const [heatmap, setHeatmap] = useState<HeatmapData | null>(null);
+  const [streak, setStreak] = useState<StreakData | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    Promise.all([
+      insightsApi.getWeekly(),
+      insightsApi.getHeatmap(),
+      insightsApi.getStreak(),
+    ])
+      .then(([w, h, s]) => {
+        setWeekly(w);
+        setHeatmap(h);
+        setStreak(s);
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, []);
 
   return (
     <div style={{
@@ -462,14 +487,27 @@ export function ScreenInsights({
         }}>
           {/* Stat row */}
           <div style={{ display: "flex", gap: "8px" }}>
-            <StreakCard />
-            <CompletionCard />
+            <StreakCard streak={streak} />
+            <CompletionCard weekly={weekly} />
             <EnergyCard />
           </div>
 
           {/* Additional Content */}
-          <FocusTimeCard />
-          <HeatmapCard />
+          {loading ? (
+            <div style={{
+              textAlign: "center",
+              padding: "48px 24px",
+              color: "#9C8880",
+              fontSize: "15px",
+            }}>
+              Loading insights...
+            </div>
+          ) : (
+            <>
+              <FocusTimeCard weekly={weekly} />
+              <HeatmapCard heatmap={heatmap} />
+            </>
+          )}
         </div>
       </div>
 

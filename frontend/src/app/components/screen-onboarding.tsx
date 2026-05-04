@@ -1,11 +1,13 @@
 import { useState, type TouchEvent } from 'react';
 import { PrimaryButton } from './atom-button-primary';
+import { useAuthStore } from '../../stores/authStore';
 
 export interface OnboardingScreenProps {
   navigate: (screen: string) => void;
 }
 
 export function OnboardingScreen({ navigate }: OnboardingScreenProps) {
+  const { userId, setOnboardingComplete } = useAuthStore();
   const [currentSlide, setCurrentSlide] = useState(0);
   const [touchStart, setTouchStart] = useState<number | null>(null);
   const [touchEnd, setTouchEnd] = useState<number | null>(null);
@@ -42,8 +44,20 @@ export function OnboardingScreen({ navigate }: OnboardingScreenProps) {
     if (currentSlide < slides.length - 1) {
       setCurrentSlide(prev => prev + 1);
     } else {
+      if (userId) {
+        localStorage.setItem(`onboarded_${userId}`, 'true');
+      }
+      setOnboardingComplete(true);
       navigate('home');
     }
+  };
+
+  const skipOnboarding = () => {
+    if (userId) {
+      localStorage.setItem(`onboarded_${userId}`, 'true');
+    }
+    setOnboardingComplete(true);
+    navigate('home');
   };
 
   const onTouchStart = (e: TouchEvent) => {
@@ -76,7 +90,7 @@ export function OnboardingScreen({ navigate }: OnboardingScreenProps) {
       {/* Top Bar with Skip */}
       <div className="w-full flex justify-end p-6 absolute top-0 z-20">
         <button 
-          onClick={() => navigate('home')}
+          onClick={skipOnboarding}
           className="text-[14px] text-[#9C8880] font-medium tracking-wide hover:text-[#B8472A] transition-colors focus:outline-none focus:underline"
         >
           Skip

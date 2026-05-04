@@ -15,6 +15,7 @@ export interface AuthState {
   setUserName: (name: string) => void;
   login: (userId: string, userName: string, onboarding: boolean) => void;
   logout: () => Promise<void>;
+  clearUser: () => void;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -47,11 +48,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             .then((res) => {
               // Store the new access token in memory so all subsequent
               // API calls include the Authorization header.
-              setAccessToken(res.data.access_token);
+              const newToken = res.data.access_token;
+              setAccessToken(newToken);
+              client.defaults.headers.common['Authorization'] =
+                `Bearer ${newToken}`;
             })
             .catch(() => {
               // Refresh token expired — clear state and force re-login
-              get().logout();
+              get().clearUser();
             })
             .finally(() => {
               get().completeBootRefresh();
@@ -113,9 +117,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       await client.post('/auth/logout');
     } catch {
-      // Ignore network errors, proceed to clear local state
+      // Best effort — clear locally regardless
+    } finally {
+      get().clearUser();
     }
-    
+  },
+
+  clearUser: () => {
+    setAccessToken(null);
+    delete client.defaults.headers.common['Authorization'];
+    try {
+      localStorage.removeItem('access_token');
+      localStorage.removeItem('refresh_token');
+    } catch {}
     localStorage.removeItem('auth_state');
     set({
       userId: null,
