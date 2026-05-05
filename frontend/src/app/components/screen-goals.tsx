@@ -239,11 +239,21 @@ export function ScreenGoals({
 }: ScreenGoalsProps) {
   const [_navTab, setNavTab] = useState<BottomBarTab>(activeTab);
   const [goals, setGoals] = useState<GoalSummary[]>([]);
+  const [pausedCount, setPausedCount] = useState(0);
+  const [completedCount, setCompletedCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
   const loadGoals = () => {
     client.get('/goals')
-      .then((response) => setGoals(getGoalsFromResponse(response.data).map(normalizeGoal)))
+      .then((response) => {
+        const allGoals = getGoalsFromResponse(response.data);
+        const active = allGoals.filter(g => String(g.status ?? '').toLowerCase() === 'active');
+        const paused = allGoals.filter(g => String(g.status ?? '').toLowerCase() === 'paused');
+        const done = allGoals.filter(g => ['achieved', 'completed', 'abandoned'].includes(String(g.status ?? '').toLowerCase()));
+        setGoals(active.map(normalizeGoal));
+        setPausedCount(paused.length);
+        setCompletedCount(done.length);
+      })
       .catch(console.error)
       .finally(() => setLoading(false));
   };
@@ -256,10 +266,9 @@ export function ScreenGoals({
     const name = window.prompt('Goal name?');
     if (!name) return;
     client.post('/goals', {
-      name,
-      subtitle: '',
-      end_date: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      ring_color: '#E05C7A',
+      title: name,
+      goal_type: 'other',
+      target_date: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
     }).then(() => {
       loadGoals();
       onNewGoal?.();
@@ -395,10 +404,10 @@ export function ScreenGoals({
 
         {/* ── 3c. Accordion rows ───────────────────────────────────────── */}
         <div style={{ marginTop: "8px" }}>
-          {/* Row 1 — Paused · count 1 */}
-          <AccordionRow label="Paused"    count={1} divider />
-          {/* Row 2 — Completed · count 2 (no bottom border on last row) */}
-          <AccordionRow label="Completed" count={2} divider={false} />
+          {/* Row 1 — Paused · dynamic count */}
+          <AccordionRow label="Paused"    count={pausedCount} divider />
+          {/* Row 2 — Completed · dynamic count (no bottom border on last row) */}
+          <AccordionRow label="Completed" count={completedCount} divider={false} />
         </div>
       </div>
 

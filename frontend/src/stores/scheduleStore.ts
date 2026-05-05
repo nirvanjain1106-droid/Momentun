@@ -61,20 +61,7 @@ function shouldQueueOptimisticError(error: QueueableError | null): boolean {
   return !navigator.onLine || error?.code === 'ERR_NETWORK' || error?.response?.status === 409;
 }
 
-function getErrorMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message) {
-    // Axios sets error.message to "Network Error" for failed requests with
-    // no response — surface a friendlier message instead.
-    if (error.message === 'Network Error') {
-      return 'Unable to connect to the server. Please check your connection and try again.';
-    }
-    return error.message;
-  }
 
-  const queueableError = asQueueableError(error);
-  return queueableError?.message || fallback;
-}
-void getErrorMessage;
 
 const TODAY_CACHE_KEY = 'today_schedule';
 

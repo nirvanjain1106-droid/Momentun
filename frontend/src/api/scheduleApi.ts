@@ -307,9 +307,14 @@ export const scheduleApi = {
 
   /** POST /checkin/morning — submit morning check-in */
   saveMorningCheckin: async (data: Record<string, unknown>) => {
+    // Map numeric energy_level (1-5) to backend enum string
+    const energyNum = Number(data.energy_level ?? 3);
+    const morningEnergy = energyNum <= 1 ? 'exhausted' : energyNum <= 2 ? 'low' : energyNum <= 4 ? 'medium' : 'high';
     const response = await client.post('/checkin/morning', {
-      energy_level: data.energy_level,
-      yesterday_reflection: data.mood_note || '',
+      morning_energy: morningEnergy,
+      yesterday_rating: String(data.yesterday_rating || 'decent'),
+      surprise_event: String(data.surprise_event || 'none'),
+      surprise_note: data.surprise_note ? String(data.surprise_note) : undefined,
     });
     return response.data;
   },
@@ -317,9 +322,9 @@ export const scheduleApi = {
   /** POST /checkin/evening — submit evening review */
   saveEveningReview: async (data: Record<string, unknown>) => {
     const response = await client.post('/checkin/evening', {
-      mood_score: data.day_rating,
-      reflection: data.biggest_win || '',
-      completed_task_ids: [],
+      mood_score: Number(data.day_rating ?? 3),
+      task_completions: Array.isArray(data.task_completions) ? data.task_completions : [],
+      evening_note: String(data.biggest_win || data.reflection || ''),
     });
     return response.data;
   },

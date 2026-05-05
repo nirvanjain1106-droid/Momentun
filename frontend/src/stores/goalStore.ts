@@ -44,7 +44,7 @@ export const useGoalStore = create<GoalState>((set, get) => ({
       const url = status ? `/goals?status=${status}` : '/goals';
       const response = await client.get(url);
       // Guard: items may be undefined if the shape changes or the call races
-      set({ goals: response.data?.items ?? [] });
+      set({ goals: response.data?.goals ?? [] });
     } catch (error) {
       // Don't rethrow — a toast is sufficient; rethrowing crashes GoalsPage
       set({ goals: [] });

@@ -104,13 +104,14 @@ export function GoalDetailScreen({ navigate, goalId }: GoalDetailScreenProps) {
   const plotHeight = chartHeight - paddingY * 2;
   
   const maxY = 100;
-  const points = goal.trajectory.map((val, i) => {
+  const hasTrajectory = goal.trajectory.length > 1;
+  const points = hasTrajectory ? goal.trajectory.map((val, i) => {
     const x = paddingX + (i / (goal.trajectory.length - 1)) * plotWidth;
     const y = chartHeight - paddingY - (val / maxY) * plotHeight;
     return `${x},${y}`;
-  }).join(' ');
+  }).join(' ') : '';
 
-  const currentPoint = points.split(' ').pop()?.split(',') || ['0','0'];
+  const currentPoint = hasTrajectory ? (points.split(' ').pop()?.split(',') || ['0','0']) : ['0','0'];
 
   return (
     <div className="flex flex-col w-full min-h-screen bg-[#FAF6F2] font-sf-pro text-[#1A1210]">
@@ -171,7 +172,8 @@ export function GoalDetailScreen({ navigate, goalId }: GoalDetailScreenProps) {
           {getStatusBadge(goal.status)}
         </section>
 
-        {/* TRAJECTORY CARD */}
+        {/* TRAJECTORY CARD — only render when data exists */}
+        {hasTrajectory && (
         <section className="bg-white rounded-[16px] border border-[#EDE5DE] p-4 shadow-[0_2px_8px_rgba(26,18,16,0.06)]">
           <h3 className="text-[15px] font-semibold text-[#1A1210] mb-4">Progress over time</h3>
           <div className="w-full relative" style={{ height: chartHeight }}>
@@ -211,8 +213,10 @@ export function GoalDetailScreen({ navigate, goalId }: GoalDetailScreenProps) {
             </div>
           </div>
         </section>
+        )}
 
-        {/* MILESTONES CARD */}
+        {/* MILESTONES CARD — only render when milestones exist */}
+        {goal.milestones.length > 0 && (
         <section className="bg-white rounded-[16px] border border-[#EDE5DE] p-4 shadow-[0_2px_8px_rgba(26,18,16,0.06)]">
           <h3 className="text-[15px] font-semibold text-[#1A1210] mb-3">Milestones</h3>
           <div className="space-y-3">
@@ -235,8 +239,10 @@ export function GoalDetailScreen({ navigate, goalId }: GoalDetailScreenProps) {
             ))}
           </div>
         </section>
+        )}
 
-        {/* TASKS LINKED CARD */}
+        {/* TASKS LINKED CARD — only render when linked tasks exist */}
+        {goal.linkedTasks.length > 0 && (
         <section className="bg-white rounded-[16px] border border-[#EDE5DE] p-4 shadow-[0_2px_8px_rgba(26,18,16,0.06)]">
           <h3 className="text-[15px] font-semibold text-[#1A1210] mb-3">Related Tasks</h3>
           <div className="space-y-3">
@@ -254,6 +260,7 @@ export function GoalDetailScreen({ navigate, goalId }: GoalDetailScreenProps) {
             ))}
           </div>
         </section>
+        )}
       </div>
 
       {/* CTA */}

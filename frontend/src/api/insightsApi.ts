@@ -91,10 +91,18 @@ export const insightsApi = {
     return response.data as HeatmapData;
   },
 
-  /** Get daily focus time (stub — returns computed estimate) */
-  getDailyFocusTime: async (_dateStr?: string): Promise<{ hours: number; minutes: number }> => {
-    // Will be wired to backend once focus tracking endpoint exists
-    return { hours: 0, minutes: 0 };
+  /** Get daily focus time — computed from completed task durations */
+  getDailyFocusTime: async (dateStr?: string): Promise<{ hours: number; minutes: number }> => {
+    try {
+      const { scheduleApi } = await import('./scheduleApi');
+      const tasks = await scheduleApi.getTasks(dateStr);
+      const completedMins = tasks
+        .filter(t => t.task_status === 'completed' || t.task_status === 'done')
+        .reduce((sum, t) => sum + t.duration_mins, 0);
+      return { hours: Math.floor(completedMins / 60), minutes: completedMins % 60 };
+    } catch {
+      return { hours: 0, minutes: 0 };
+    }
   },
 };
 

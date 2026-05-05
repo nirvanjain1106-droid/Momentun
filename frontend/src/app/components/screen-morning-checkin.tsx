@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ArrowLeft, X } from 'lucide-react';
 import { scheduleApi } from '../../api/scheduleApi';
+import { insightsApi } from '../../api/insightsApi';
 import { useAuthStore } from '../../stores/authStore';
 import { getApiErrorMessage } from '../../lib/errorHandler';
 
@@ -23,6 +24,7 @@ export default function ScreenMorningCheckin({ navigate }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
   const [blockFocus, setBlockFocus] = useState(true);
+  const [streakCount, setStreakCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -38,6 +40,9 @@ export default function ScreenMorningCheckin({ navigate }: Props) {
       }
     };
     fetchTasks();
+    insightsApi.getStreak()
+      .then(data => setStreakCount(data.current_streak))
+      .catch(() => setStreakCount(0));
   }, []);
 
   const handleComplete = async () => {
@@ -382,16 +387,16 @@ export default function ScreenMorningCheckin({ navigate }: Props) {
           ) : (
             <div className="flex flex-col gap-4">
               {todaysTasks.map((task, i) => (
-                <div key={i} className={`flex items-center gap-3 ${task.status === 'completed' ? 'opacity-50' : ''}`}>
+                <div key={i} className={`flex items-center gap-3 ${task.task_status === 'completed' ? 'opacity-50' : ''}`}>
                   <div className="text-[12px] text-[#9C8880] w-[60px] flex-shrink-0">
-                    {task.due_date ? new Date(task.due_date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'Anytime'}
+                    {task.scheduled_start ? new Date(task.scheduled_start).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'Anytime'}
                   </div>
-                  <div className={`w-[8px] h-[8px] rounded-full ${task.status === 'completed' ? 'bg-[#9C8880]' : 'bg-[#B8472A]'}`}></div>
-                  <div className={`text-[14px] flex-1 truncate ${task.status === 'completed' ? 'text-[#9C8880] line-through' : 'text-[#1A1210]'}`}>
+                  <div className={`w-[8px] h-[8px] rounded-full ${task.task_status === 'completed' ? 'bg-[#9C8880]' : 'bg-[#B8472A]'}`}></div>
+                  <div className={`text-[14px] flex-1 truncate ${task.task_status === 'completed' ? 'text-[#9C8880] line-through' : 'text-[#1A1210]'}`}>
                     {task.title}
                   </div>
                   <div className="text-[12px] text-[#9C8880] w-[40px] text-right flex-shrink-0">
-                    {task.status === 'completed' ? '✓ Done' : '30m'}
+                    {task.task_status === 'completed' ? '✓ Done' : `${task.duration_mins || 30}m`}
                   </div>
                 </div>
               ))}
@@ -468,14 +473,16 @@ export default function ScreenMorningCheckin({ navigate }: Props) {
             </div>
           </div>
 
+          {streakCount > 0 && (
           <div className="bg-white border-y border-r border-l-0 border-[#EDE5DE] rounded-[12px] shadow-[0_2px_8px_rgba(26,18,16,0.06)] relative overflow-hidden flex p-4 items-center gap-4">
             <div className="absolute left-0 top-0 bottom-0 w-[4px] bg-gradient-to-b from-[#D4920A] to-[#B8472A]"></div>
             <div className="text-[28px] pl-2">🔥</div>
             <div>
-              <div className="text-[15px] font-bold text-[#D4920A] mb-1">7 Day Streak!</div>
-              <div className="text-[13px] text-[#6B5C54]">You've checked in 7 days in a row. Keep it going!</div>
+              <div className="text-[15px] font-bold text-[#D4920A] mb-1">{streakCount} Day Streak!</div>
+              <div className="text-[13px] text-[#6B5C54]">You've checked in {streakCount} day{streakCount !== 1 ? 's' : ''} in a row. Keep it going!</div>
             </div>
           </div>
+          )}
 
           <div className="mt-4">
             <button 
